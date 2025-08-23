@@ -90,10 +90,16 @@ const hash_derivations = {
     'aab20feb9bc6881f941ea649356130ffbc4943b3c2577c0991e1fba90de5a0fc':
         'Moonshot AI'
     ,
+
+    // gpt-oss
+    '70da0d2348e40aaf8dad05f04a316835fd10547bd7e3392ce337e4c79ba91c01':
+        'OpenAI Harmony'
+    ,
 };
 
 const substr_derivations = [
     ['Moonshot AI', ['<|im_user|>user<|im_middle|>', '<|im_assistant|>assistant<|im_middle|>', '<|im_end|>']],
+    ['OpenAI Harmony', ['<|start|>user<|message|>', '<|start|>assistant<|channel|>final<|message|>', '<|end|>']],
 
     // Generic cases
     ['ChatML', ['<|im_start|>user', '<|im_start|>assistant', '<|im_end|>']],
