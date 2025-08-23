@@ -91,7 +91,7 @@ const hash_derivations = {
         'Moonshot AI'
     ,
 
-    // gpt-oss
+    // gpt-oss (unsloth)
     '70da0d2348e40aaf8dad05f04a316835fd10547bd7e3392ce337e4c79ba91c01':
         'OpenAI Harmony'
     ,
