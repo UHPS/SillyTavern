@@ -95,6 +95,11 @@ const hash_derivations = {
     '70da0d2348e40aaf8dad05f04a316835fd10547bd7e3392ce337e4c79ba91c01':
         'OpenAI Harmony'
     ,
+
+    // gpt-oss (ggml-org)
+    'a4c9919cbbd4acdd51ccffe22da049264b1b73e59055fa58811a99efbd7c8146':
+        'OpenAI Harmony'
+    ,
 };
 
 const substr_derivations = [
