@@ -212,7 +212,7 @@
                         <!--  Vacant for future use -->
                     </div>
                     <div class="flex1" title="Maximum number of entries to be activated">
-                        <label for="vectors_max_entries" >
+                        <label for="vectors_max_entries">
                             <small data-i18n="Max Entries">Max Entries</small>
                         </label>
                         <input id="vectors_max_entries" type="number" class="text_pole widthUnset" min="1" max="9999" />
@@ -325,7 +325,7 @@
                             <span data-i18n="In-chat @ Depth">In-chat @ Depth</span>
                             <input id="vectors_file_depth_db" class="text_pole widthUnset" type="number" min="0" max="9999" />
                             <span>as</span>
-                            <select id="vectors_file_depth_role_db"  class="text_pole widthNatural">
+                            <select id="vectors_file_depth_role_db" class="text_pole widthNatural">
                                 <option value="0" data-i18n="System">System</option>
                                 <option value="1" data-i18n="User">User</option>
                                 <option value="2" data-i18n="Assistant">Assistant</option>
@@ -351,6 +351,11 @@
             <label class="checkbox_label" for="vectors_enabled_chats">
                 <input id="vectors_enabled_chats" type="checkbox" class="checkbox">
                 <span data-i18n="Enabled for chat messages">Enabled for chat messages</span>
+            </label>
+
+            <label class="checkbox_label" for="vectors_augment_keyword_search" title="Augment vector search results with keyword-based lookup for better retrieval of specific terms.">
+                <input id="vectors_augment_keyword_search" type="checkbox" class="checkbox">
+                <span data-i18n="Augment with Keyword Search">Augment with Keyword Search</span>
             </label>
 
             <hr>

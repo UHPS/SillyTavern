@@ -75,6 +75,7 @@ const settings = {
 
     // For chats
     enabled_chats: false,
+    augment_keyword_search: false,
     template: 'Past events:\n{{text}}',
     depth: 2,
     position: extension_prompt_types.IN_PROMPT,
@@ -112,7 +113,72 @@ const settings = {
 const moduleWorker = new ModuleWorkerWrapper(synchronizeChat);
 const webllmProvider = new WebLlmVectorProvider();
 const cachedSummaries = new Map();
+const queryAnalysisCache = new Map(); // Cache for query analysis to avoid re-processing
 const vectorApiRequiresUrl = ['llamacpp', 'vllm', 'ollama', 'koboldcpp'];
+
+// Scoring constants
+const SCORING_WEIGHTS = {
+    KEYWORD: 0.3,
+    PHRASE: 0.4,
+    TECHNICAL: 0.5,
+    PROXIMITY: 2.0,
+    INTERSECTION_BONUS: 0.05,
+    NORMALIZATION_SCALE: 0.5,
+    DEFAULT_SEMANTIC_SCORE: 0.5,
+    SEMANTIC_DECAY: 0.05,
+};
+
+// Search limits
+const SEARCH_LIMITS = {
+    MAX_SEARCH_TERMS: 20,
+    MAX_WORDS_FOR_COMBINATIONS: 10,
+    MAX_CHUNKS_TO_SEARCH: 50,
+    SEMANTIC_SEARCH_MULTIPLIER: 2,
+};
+
+/**
+ * Cache for file chunks to avoid re-fetching and re-splitting the same files
+ * @type {Map<string, {chunks: string[], lastModified: number}>}
+ */
+const fileChunkCache = new Map();
+
+/**
+ * Cache for target file lookups to avoid repeated find operations
+ * @type {Map<string, object>}
+ */
+const targetFileCache = new Map();
+
+/**
+ * Constants for word processing and query analysis
+ * Moved to module level to avoid recreation on each function call
+ */
+const STOP_WORDS = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+    'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does',
+    'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'shall',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me',
+    'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their', 'what', 'which',
+    'who', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more',
+    'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so',
+    'than', 'too', 'very', 'just', 'don', 'now',
+]);
+
+const QUERY_STRUCTURE_WORDS = new Set(['tell', 'me', 'about', 'what', 'how', 'why', 'when', 'where', 'who', 'which', 'can', 'you', 'please', 'explain', 'describe']);
+
+const COMMON_PHRASES = ['what is', 'how to', 'tell me', 'can you'];
+
+const QUESTION_WORDS = ['what', 'how', 'why', 'when', 'where', 'who', 'which'];
+
+/**
+ * Cache for word processing results to avoid repeated computations
+ * @type {Map<string, boolean>}
+ */
+const wordProcessingCache = new Map();
+
+/**
+ * Maximum size for word processing cache to prevent memory issues
+ */
+const WORD_PROCESSING_CACHE_MAX_SIZE = 1000;
 
 /**
  * Gets the Collection ID for a file embedded in the chat.
@@ -248,7 +314,7 @@ async function summarizeExtra(element) {
         }
     }
     catch (error) {
-        console.log(error);
+        console.error('[Vectors] Summarize extra error:', error);
         return false;
     }
 
@@ -328,7 +394,7 @@ async function synchronizeChat(batchSize = 5) {
     try {
         await waitUntilCondition(() => !syncBlocked && !is_send_press, 1000);
     } catch {
-        console.log('Vectors: Synchronization blocked by another process');
+        console.warn('[Vectors] Synchronization blocked by another process');
         return -1;
     }
 
@@ -338,7 +404,7 @@ async function synchronizeChat(batchSize = 5) {
         const chatId = getCurrentChatId();
 
         if (!chatId || !Array.isArray(context.chat)) {
-            console.debug('Vectors: No chat selected');
+            console.warn('Vectors: No chat selected');
             return -1;
         }
 
@@ -355,13 +421,13 @@ async function synchronizeChat(batchSize = 5) {
         if (newVectorItems.length > 0) {
             const chunkedBatch = splitByChunks(newVectorItems.slice(0, batchSize));
 
-            console.log(`Vectors: Found ${newVectorItems.length} new items. Processing ${batchSize}...`);
+            console.debug(`[Vectors] Found ${newVectorItems.length} new items. Processing ${batchSize}...`);
             await insertVectorItems(chatId, chunkedBatch);
         }
 
         if (deletedHashes.length > 0) {
             await deleteVectorItems(chatId, deletedHashes);
-            console.log(`Vectors: Deleted ${deletedHashes.length} old hashes`);
+            console.log(`[Vectors] Deleted ${deletedHashes.length} old hashes`);
         }
 
         return newVectorItems.length - batchSize;
@@ -503,7 +569,7 @@ async function ingestDataBankAttachments(source) {
 
         // Download and process the file
         const fileText = await getFileAttachment(file.url);
-        console.log(`Vectors: Retrieved file ${file.name} from Data Bank`);
+        console.debug(`[Vectors] Retrieved file ${file.name} from Data Bank`);
         // Convert kilobytes to string length
         const thresholdLength = settings.size_threshold_db * 1024;
         // Use chunk size from settings if file is larger than threshold
@@ -522,18 +588,67 @@ async function ingestDataBankAttachments(source) {
  */
 async function injectDataBankChunks(queryText, collectionIds) {
     try {
-        const queryResults = await queryMultipleCollections(collectionIds, queryText, settings.chunk_count_db, settings.score_threshold);
-        console.debug(`Vectors: Retrieved ${collectionIds.length} Data Bank collections`, queryResults);
+        // Removed duplicate query text logging - already logged in processFiles
+
+        // Now try with normal threshold - USE SMART SEARCH
+        const searchType = settings.augment_keyword_search ? 'enhanced' : 'basic';
+        console.debug(`[Vectors] Running ${searchType} search for data bank`);
+        const queryResults = {};
+
+        // Use smart search for each collection individually
+        for (const collectionId of collectionIds) {
+            console.debug(`[Vectors] Querying collection ${collectionId} with ${searchType} search`);
+            const collectionResults = await smartQueryCollection(collectionId, queryText, settings.chunk_count_db, settings.score_threshold);
+            console.debug(`[Vectors] Raw API response for ${collectionId}:`, JSON.stringify(collectionResults, null, 2));
+            queryResults[collectionId] = collectionResults;
+        }
+
+        console.debug(`[Vectors] Retrieved ${collectionIds.length} Data Bank collections with ${searchType} search`, queryResults);
+
+        // Add detailed logging
+        if (queryResults && Object.keys(queryResults).length > 0) {
+            for (const [collectionId, result] of Object.entries(queryResults)) {
+                console.debug(`[Vectors] Collection ${collectionId}: ${result.hashes?.length || 0} chunks`);
+            }
+        }
+
         let textResult = '';
 
         for (const collectionId in queryResults) {
-            console.debug(`Vectors: Processing Data Bank collection ${collectionId}`, queryResults[collectionId]);
-            const metadata = queryResults[collectionId].metadata?.filter(x => x.text)?.sort((a, b) => a.index - b.index)?.map(x => x.text)?.filter(onlyUnique) || [];
+            console.debug(`[Vectors] Processing Data Bank collection ${collectionId}`, queryResults[collectionId]);
+
+            // Get the original metadata objects (not just text)
+            const originalMetadata = queryResults[collectionId].metadata?.filter(x => x.text) || [];
+            console.debug(`[Vectors] Original metadata for ${collectionId}:`, originalMetadata);
+
+            // Sort by index and remove duplicates based on text content
+            const sortedMetadata = originalMetadata
+                .sort((a, b) => a.index - b.index)
+                .filter((item, index, arr) => arr.findIndex(x => x.text === item.text) === index);
+
+            console.debug(`[Vectors] Sorted metadata for ${collectionId}:`, sortedMetadata);
+
+            // DEBUG: Log chunk details with API scores
+            console.debug(`[Vectors] Collection ${collectionId} - Retrieved ${sortedMetadata.length} chunks`);
+            let totalChunkSize = 0;
+            sortedMetadata.forEach((chunkMetadata, i) => {
+                const apiScore = chunkMetadata?.score !== undefined ? chunkMetadata.score.toFixed(4) : 'N/A';
+                console.debug(`[Vectors]   Chunk ${i + 1}: ${chunkMetadata.text.length} characters (API score: ${apiScore})`);
+                totalChunkSize += chunkMetadata.text.length;
+            });
+            console.debug(`[Vectors]   Total chunk content: ${totalChunkSize} characters`);
+
+            // Extract text for the final result
+            const metadata = sortedMetadata.map(x => x.text);
             textResult += metadata.join('\n') + '\n\n';
         }
 
+        // DEBUG: Log final result size
+        console.debug(`[Vectors] Final textResult size: ${textResult.length} characters`);
+        console.debug(`[Vectors] Expected max size: ${settings.chunk_count_db} chunks × ${settings.chunk_size_db} chars = ${settings.chunk_count_db * settings.chunk_size_db} chars`);
+
         if (!textResult) {
-            console.debug('Vectors: No Data Bank chunks found');
+            console.log('[Vectors] No Data Bank chunks found');
             return;
         }
 
@@ -552,8 +667,15 @@ async function injectDataBankChunks(queryText, collectionIds) {
  */
 async function retrieveFileChunks(queryText, collectionId) {
     console.debug(`Vectors: Retrieving file chunks for collection ${collectionId}`, queryText);
-    const queryResults = await queryCollection(collectionId, queryText, settings.chunk_count);
+    // Reset threshold and try normal query
+    const queryResults = await queryCollection(collectionId, queryText, settings.chunk_count, settings.score_threshold);
     console.debug(`Vectors: Retrieved ${queryResults.hashes.length} file chunks for collection ${collectionId}`, queryResults);
+
+    // Add detailed logging of chunk contents
+    if (queryResults.metadata && queryResults.metadata.length > 0) {
+        console.debug('[Vectors] Normal threshold file results:');
+    }
+
     const metadata = queryResults.metadata.filter(x => x.text).sort((a, b) => a.index - b.index).map(x => x.text).filter(onlyUnique);
     const fileText = metadata.join('\n');
 
@@ -574,7 +696,7 @@ async function vectorizeFile(fileText, fileName, collectionId, chunkSize, overla
 
     try {
         if (settings.translate_files && typeof globalThis.translate === 'function') {
-            console.log(`Vectors: Translating file ${fileName} to English...`);
+            console.debug(`[Vectors] Translating file ${fileName} to English...`);
             const translatedText = await globalThis.translate(fileText, 'en');
             fileText = translatedText;
         }
@@ -590,6 +712,19 @@ async function vectorizeFile(fileText, fileName, collectionId, chunkSize, overla
         const chunks = settings.only_custom_boundary && settings.force_chunk_delimiter
             ? fileText.split(settings.force_chunk_delimiter).map(applyOverlap)
             : splitRecursive(fileText, chunkSize, delimiters).map(applyOverlap);
+
+        // 🔍 DEBUG: Log chunking details
+        console.debug(`[Vectors] Chunking analysis for ${fileName}`);
+        console.debug(`[Vectors] Original text length: ${fileText.length}`);
+        console.debug(`[Vectors] Chunk size: ${chunkSize}, Overlap: ${overlapPercent}% (${overlapSize} chars)`);
+        console.debug(`[Vectors] Delimiters: ${JSON.stringify(delimiters)}`);
+        console.debug(`[Vectors] Total chunks created: ${chunks.length}`);
+
+        // Log first few chunks for inspection
+        chunks.slice(0, 3).forEach((chunk, index) => {
+            console.debug(`[Vectors] Chunk ${index + 1} preview: "${chunk.substring(0, 100)}..."`);
+        });
+
         console.debug(`Vectors: Split file ${fileName} into ${chunks.length} chunks with ${overlapPercent}% overlap`, chunks);
 
         const items = chunks.map((chunk, index) => ({ hash: getStringHash(chunk), text: chunk, index: index }));
@@ -601,7 +736,7 @@ async function vectorizeFile(fileText, fileName, collectionId, chunkSize, overla
         }
 
         toastr.clear(toast);
-        console.log(`Vectors: Inserted ${chunks.length} vector items for file ${fileName} into ${collectionId}`);
+        console.log(`[Vectors] Inserted ${chunks.length} vector items for file ${fileName} into ${collectionId}`);
         return true;
     } catch (error) {
         toastr.clear(toast);
@@ -644,19 +779,19 @@ async function rearrangeChat(chat, _contextSize, _abort, type) {
         const chatId = getCurrentChatId();
 
         if (!chatId || !Array.isArray(chat)) {
-            console.debug('Vectors: No chat selected');
+            console.warn('Vectors: No chat selected');
             return;
         }
 
         if (chat.length < settings.protect) {
-            console.debug(`Vectors: Not enough messages to rearrange (less than ${settings.protect})`);
+            console.log(`Vectors: Not enough messages to rearrange (less than ${settings.protect})`);
             return;
         }
 
         const queryText = await getQueryText(chat, 'chat');
 
         if (queryText.length === 0) {
-            console.debug('Vectors: No text to query');
+            console.log('Vectors: No text to query');
             return;
         }
 
@@ -709,7 +844,7 @@ async function rearrangeChat(chat, _contextSize, _abort, type) {
  */
 function getPromptText(queriedMessages) {
     const queriedText = queriedMessages.map(x => collapseNewlines(`${x.name}: ${x.mes}`).trim()).join('\n\n');
-    console.log('Vectors: relevant past messages found.\n', queriedText);
+    console.log('[Vectors] Relevant past messages found.\n', queriedText);
     return substituteParamsExtended(settings.template, { text: queriedText });
 }
 
@@ -737,6 +872,946 @@ window['vectors_rearrangeChat'] = rearrangeChat;
 
 const onChatEvent = debounce(async () => await moduleWorker.update(), debounce_timeout.relaxed);
 
+// Make cache management functions available globally for debugging
+window['clearFileChunkCache'] = clearFileChunkCache;
+window['getFileChunkCacheInfo'] = () => {
+    console.debug('[Vectors] File Chunk Cache Info:');
+    console.debug(`[Vectors] Total cached files: ${fileChunkCache.size}`);
+    for (const [collectionId, data] of fileChunkCache.entries()) {
+        console.debug(`[Vectors] - ${collectionId}: ${data.chunks.length} chunks, cached ${new Date(data.lastModified).toLocaleTimeString()}`);
+    }
+    return fileChunkCache.size;
+};
+window['clearQueryAnalysisCache'] = () => {
+    queryAnalysisCache.clear();
+    console.debug('[Vectors] Query analysis cache cleared');
+};
+window['getQueryAnalysisCacheInfo'] = () => {
+    console.debug('[Vectors] Query Analysis Cache Info:');
+    console.debug(`[Vectors] Total cached queries: ${queryAnalysisCache.size}`);
+    return queryAnalysisCache.size;
+};
+window['clearWordProcessingCache'] = () => {
+    wordProcessingCache.clear();
+    console.debug('[Vectors] Word processing cache cleared');
+};
+window['getWordProcessingCacheInfo'] = () => {
+    console.debug('[Vectors] Word Processing Cache Info:');
+    console.debug(`[Vectors] Total cached words: ${wordProcessingCache.size}`);
+    return wordProcessingCache.size;
+};
+
+/**
+ * Gets cached chunks for a collection, or fetches and caches them if not available
+ * @param {string} collectionId - Collection ID to get chunks for
+ * @returns {Promise<string[]|null>} - Array of chunks or null if failed
+ */
+async function getCachedFileChunks(collectionId) {
+    const cacheKey = collectionId;
+
+    // Check if chunks are already cached
+    if (fileChunkCache.has(cacheKey)) {
+        return fileChunkCache.get(cacheKey).chunks;
+    }
+
+    // Fetch and cache chunks
+    const dataBank = getDataBankAttachments();
+    const targetFile = dataBank.find(attachment => getFileCollectionId(attachment.url) === collectionId);
+
+    if (!targetFile) {
+        console.debug('[Vectors] Source file not found in dataBank');
+        return null;
+    }
+
+    try {
+        const response = await fetch(targetFile.url);
+        if (!response.ok) {
+            console.warn('Failed to fetch file content');
+            return null;
+        }
+
+        const fileContent = await response.text();
+        console.debug(`[Vectors] Read ${fileContent.length} characters from file`);
+
+        // Split into chunks using same parameters as vector system
+        const delimiters = getChunkDelimiters();
+        const chunkSize = settings.chunk_size_db;
+        const overlapPercent = settings.overlap_percent_db;
+        const overlapSize = Math.floor(chunkSize * overlapPercent / 100);
+        const adjustedChunkSize = overlapSize > 0 ? (chunkSize - overlapSize) : chunkSize;
+        const applyOverlap = (chunk, index, chunks) => overlapSize > 0 ? overlapChunks(chunk, index, chunks, overlapSize) : chunk;
+
+        const rawChunks = splitRecursive(fileContent, adjustedChunkSize, delimiters);
+        const chunks = rawChunks.map(applyOverlap);
+
+        console.debug(`[Vectors] Split into ${chunks.length} chunks (size: ${chunkSize}, overlap: ${overlapPercent}%)`);
+
+        // Cache the chunks
+        fileChunkCache.set(cacheKey, {
+            chunks: chunks,
+            lastModified: Date.now(),
+        });
+
+        return chunks;
+    } catch (error) {
+        console.warn('Failed to fetch and cache file chunks:', error);
+        return null;
+    }
+}
+
+/**
+ * Clears the file chunk cache (useful for memory management or when files change)
+ * @param {string} [collectionId] - Optional specific collection to clear, clears all if not provided
+ */
+function clearFileChunkCache(collectionId = null) {
+    if (collectionId) {
+        fileChunkCache.delete(collectionId);
+        targetFileCache.delete(collectionId); // Also clear target file cache
+        console.debug(`[Vectors] Cleared cache for collection: ${collectionId}`);
+    } else {
+        const cacheSize = fileChunkCache.size;
+        const targetCacheSize = targetFileCache.size;
+        fileChunkCache.clear();
+        targetFileCache.clear(); // Also clear target file cache
+        console.debug(`[Vectors] Cleared entire file chunk cache (${cacheSize} entries) and target file cache (${targetCacheSize} entries)`);
+    }
+}
+
+async function exactKeywordSearch(collectionId, keyword, maxResults = 10, originalQuery = '') {
+    console.debug(`[Vectors] Performing exact keyword search for "${keyword}"`);
+
+    try {
+        // Check cache for target file first
+        let targetFile = targetFileCache.get(collectionId);
+
+        if (!targetFile) {
+            const dataBank = getDataBankAttachments();
+            targetFile = dataBank.find(attachment => getFileCollectionId(attachment.url) === collectionId);
+
+            // Cache the result if found
+            if (targetFile) {
+                targetFileCache.set(collectionId, targetFile);
+                console.debug(`[Vectors] Cached target file for collection ${collectionId}: ${targetFile.url}`);
+            }
+        } else {
+            console.debug(`[Vectors] Using cached target file for collection ${collectionId}: ${targetFile.url}`);
+        }
+
+        if (targetFile) {
+            // Get chunks from cache or fetch/cache them
+            const chunks = await getCachedFileChunks(collectionId);
+
+            if (!chunks) {
+                console.warn('Failed to get file chunks');
+                return { hashes: [], metadata: [] };
+            }
+
+            const exactMatches = [];
+            const seenHashes = new Set();
+
+            // Search through all chunks
+            for (let i = 0; i < chunks.length; i++) {
+                const chunkText = chunks[i];
+
+                // Debug: Log first few chunks (only on first search of this file)
+                if (i < 3 && !fileChunkCache.has(collectionId)) {
+                    console.debug(`[Vectors] FILE Chunk ${i}: "${chunkText.substring(0, 100)}..."`);
+                }
+
+                // Check for exact case-insensitive match
+                if (chunkText.toLowerCase().includes(keyword.toLowerCase())) {
+                    const hash = calculateHash(chunkText); // Generate hash for the chunk
+                    if (!seenHashes.has(hash)) {
+                        seenHashes.add(hash);
+                        console.debug(`[Vectors] FOUND MATCH in file chunk ${i}:`);
+                        console.debug(`[Vectors] FULL TEXT: "${chunkText.substring(0, 100)}..."`);
+                        console.debug(`[Vectors] Keyword "${keyword}" found at position: ${chunkText.toLowerCase().indexOf(keyword.toLowerCase())}`);
+                        exactMatches.push({
+                            hash: hash,
+                            text: chunkText,
+                            index: i,
+                        });
+
+                        if (exactMatches.length >= maxResults) break;
+                    }
+                }
+            }
+
+            console.debug(`[Vectors] Found ${exactMatches.length} exact matches in file`);
+            return {
+                hashes: exactMatches.map(match => match.hash),
+                metadata: exactMatches.map(match => ({
+                    text: match.text,
+                    index: match.index,
+                    score: 1.0,
+                })),
+            };
+        } else {
+            console.debug('[Vectors] Source file not found in dataBank, falling back to vector search');
+        }
+
+        // FALLBACK: Original vector-based approach if direct file reading fails
+        // Use multiple approaches to get diverse chunks to search through for exact keyword matches
+
+        let allChunks = { hashes: [], metadata: [] };
+
+        const exactMatches = [];
+        const seenHashes = new Set();
+
+        // Filter for exact matches
+        console.debug(`[Vectors] FINAL: Searching through ${allChunks.hashes.length} total chunks for "${keyword}"`);
+        for (let i = 0; i < allChunks.hashes.length && i < allChunks.metadata.length; i++) {
+            const hash = allChunks.hashes[i];
+            const metadata = allChunks.metadata[i];
+            const chunkText = metadata?.text || '';
+
+            // Debug: Log first 3, last 3, and any matches
+            const shouldLog = i < 3 || i >= allChunks.hashes.length - 3;
+            if (shouldLog) {
+                console.debug(`[Vectors] DEBUG Chunk ${i}: "${chunkText.substring(0, 100)}..."`);
+            }
+
+            // Check for exact case-insensitive match
+            if (chunkText.toLowerCase().includes(keyword.toLowerCase()) && !seenHashes.has(hash)) {
+                seenHashes.add(hash);
+                console.debug(`[Vectors] FOUND MATCH at chunk ${i}: "${chunkText.substring(0, 200)}..."`);
+                exactMatches.push({
+                    hash: hash,
+                    text: chunkText,
+                    index: metadata?.index || i,
+                });
+
+                if (exactMatches.length >= maxResults) break;
+            }
+        }
+
+        console.debug(`[Vectors] Found ${exactMatches.length} exact matches for "${keyword}" from ${allChunks.hashes.length} total chunks searched`);
+
+        return {
+            hashes: exactMatches.map(match => match.hash),
+            metadata: exactMatches.map(match => ({
+                text: match.text,
+                index: match.index,
+                score: 1.0, // Exact matches get perfect score
+            })),
+        };
+
+    } catch (error) {
+        console.error('Exact keyword search failed:', error);
+        return { hashes: [], metadata: [] };
+    }
+}
+
+/**
+ * Enhanced query function that automatically applies intelligent hybrid search
+ * @param {string} collectionId - Collection ID to query
+ * @param {string} searchText - Text to query
+ * @param {number} topK - Number of results to return
+ * @param {number} threshold - Score threshold for results (optional, uses settings.score_threshold if not provided)
+ * @returns {Promise<{ hashes: number[], metadata: object[]}>} - Results using intelligent search
+ */
+
+//MARK: smartQueryCollection
+async function smartQueryCollection(collectionId, searchText, topK = 5, threshold = null) {
+    // Use provided threshold or fall back to settings
+    const effectiveThreshold = threshold !== null ? threshold : settings.score_threshold;
+
+    // Check if keyword search augmentation is enabled
+    if (!settings.augment_keyword_search) {
+        // Use basic semantic search without enhancements - minimal logging to prevent spam
+        return await queryCollectionBasic(collectionId, searchText, topK, effectiveThreshold);
+    }
+
+    console.debug(`[Vectors] smartQueryCollection: "${searchText}" with threshold ${effectiveThreshold}, topK ${topK}`);
+
+    // Analyze the query to understand its structure and intent
+    const queryAnalysis = analyzeQuery(searchText);
+
+    console.debug(`[Vectors] Query analysis for "${searchText}":`);
+    console.debug(`[Vectors]   Keywords: ${queryAnalysis.keywords.join(', ')}`);
+    console.debug(`[Vectors]   Key phrases: ${queryAnalysis.keyPhrases.join(', ')}`);
+    console.debug(`[Vectors]   Technical terms: ${queryAnalysis.technicalTerms.join(', ')}`);
+
+    // Use intelligent hybrid search for all queries (includes both semantic and keyword search)
+    return await intelligentHybridSearch(collectionId, searchText, queryAnalysis, topK, effectiveThreshold);
+}
+
+/**
+ * Basic semantic search without enhancements - calls the vector API directly
+ * @param {string} collectionId - The collection to query
+ * @param {string} searchText - The text to query
+ * @param {number} topK - The number of results to return
+ * @param {number} threshold - Score threshold (optional)
+ * @returns {Promise<{ hashes: number[], metadata: object[]}>} - Query results
+ */
+//MARK: queryCollBasic
+async function queryCollectionBasic(collectionId, searchText, topK, threshold = null) {
+    const semanticResults = new Map(); // Map of hash -> { semanticScore, text, index }
+    console.debug('[Vectors] Performing basic semantic search...with threshold:', threshold, 'and topK:', topK);
+    const args = await getAdditionalArgs([searchText]);
+    const semanticResponse = await fetch('/api/vector/query', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({
+            ...getVectorsRequestBody(args),
+            collectionId: collectionId,
+            searchText: searchText,
+            topK: topK,
+            source: settings.source,
+            threshold: threshold !== null ? threshold : settings.score_threshold,
+        }),
+    });
+
+    const result = await semanticResponse.json();
+
+    for (let i = 0; i < result.hashes.length && i < result.metadata.length; i++) {
+        const hash = result.hashes[i];
+        const metadata = result.metadata[i];
+        const text = metadata?.text || '[No text available]';
+        //MARK: scores pulled here
+        const semanticScore = Math.max(0, metadata?.score !== undefined ? metadata.score : (SCORING_WEIGHTS.DEFAULT_SEMANTIC_SCORE - (i * SCORING_WEIGHTS.SEMANTIC_DECAY)));
+
+        console.debug(`[Vectors] Semantic result ${i}: hash=${hash}, score=${semanticScore.toFixed(3)}`);
+
+        semanticResults.set(hash, {
+            semanticScore: semanticScore,
+            text: text,
+            index: metadata?.index || i,// Will be set to true if also found in keyword search
+        });
+    }
+    console.debug(`[Vectors] Found ${semanticResults.size} semantic results`);
+
+    if (!semanticResponse.ok) {
+        throw new Error(`Failed to query collection ${collectionId}`);
+    }
+
+    const hashes = Array.from(semanticResults.keys());
+    const metadata = Array.from(semanticResults.values()).map(value => ({
+        text: value.text,
+        index: value.index,
+        score: value.semanticScore,  // Include score for consistency with other functions
+    }));
+
+    return { hashes, metadata };
+}
+
+/**
+ * Intelligent query analysis and keyword extraction for enhanced retrieval
+ * @param {string} queryText - The original query text
+ * @returns {object} - Analyzed query with keywords, phrases, and scoring weights
+ */
+function analyzeQuery(queryText) {
+    // Check cache first
+    if (queryAnalysisCache.has(queryText)) {
+        return queryAnalysisCache.get(queryText);
+    }
+
+    const analysis = {
+        originalQuery: queryText,
+        keywords: [],
+        keyPhrases: [],
+        technicalTerms: [],
+        questionType: 'general',
+        importanceWeights: {},
+    };
+
+    // Normalize query - clean punctuation and normalize
+    const normalized = queryText.toLowerCase().trim().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ');
+
+    // Detect question type
+    if (normalized.startsWith('what')) analysis.questionType = 'factual';
+    else if (normalized.startsWith('how')) analysis.questionType = 'procedural';
+    else if (normalized.startsWith('why')) analysis.questionType = 'explanatory';
+    else if (normalized.startsWith('when')) analysis.questionType = 'temporal';
+    else if (normalized.startsWith('where')) analysis.questionType = 'spatial';
+
+    // Extract technical terms and acronyms (content-agnostic patterns)
+    const technicalPatterns = [
+        /\b[A-Z]{2,}\b/g, // Acronyms (any 2+ uppercase letters)
+    ];
+
+    technicalPatterns.forEach(pattern => {
+        const matches = queryText.match(pattern);
+        if (matches) {
+            analysis.technicalTerms.push(...matches);
+            // Technical terms get higher importance
+            matches.forEach(term => {
+                analysis.importanceWeights[term.toLowerCase()] = 3.0;
+            });
+        }
+    });
+
+    // Extract key phrases (2-4 word combinations) from cleaned text
+    const allWords = normalized.split(/\s+/);
+
+    // More sophisticated meaningful word detection
+    const meaningfulWords = allWords.filter(word => isMeaningfulWord(word, allWords));
+
+    // Add all meaningful words as keywords first
+    const keywordSet = new Set(analysis.keywords);
+    meaningfulWords.forEach(word => {
+        if (!keywordSet.has(word)) {
+            keywordSet.add(word);
+            analysis.importanceWeights[word] = analysis.importanceWeights[word] || 1.0;
+        }
+    });
+    analysis.keywords = Array.from(keywordSet);
+
+    // Generate meaningful phrases by looking for consecutive meaningful words
+    const meaningfulPhrases = new Set();
+    for (let i = 0; i < allWords.length - 1; i++) {
+        const currentWord = allWords[i];
+        if (isMeaningfulWord(currentWord, allWords, i)) {
+            let phrase = [currentWord];
+
+            // Try to extend the phrase with following meaningful words
+            for (let j = i + 1; j < allWords.length && j < i + 4; j++) {
+                const nextWord = allWords[j];
+                if (isMeaningfulWord(nextWord, allWords, j)) {
+                    phrase.push(nextWord);
+                    // Create phrase if we have 2+ words
+                    if (phrase.length >= 2) {
+                        const phraseText = phrase.join(' ');
+                        if (!meaningfulPhrases.has(phraseText)) {
+                            meaningfulPhrases.add(phraseText);
+                            analysis.importanceWeights[phraseText] = phrase.length * 1.5;
+                        }
+                    }
+                } else {
+                    break; // Stop if we hit a non-meaningful word
+                }
+            }
+        }
+    }
+
+    // Generate additional 2-word combinations from all meaningful words (not just consecutive)
+    // This helps find combinations like "ridgeline sales" that aren't consecutive in the query
+    const additionalPhrases = new Set();
+    // Limit to top meaningful words to avoid O(n^2) complexity
+    const maxWordsForCombinations = Math.min(meaningfulWords.length, SEARCH_LIMITS.MAX_WORDS_FOR_COMBINATIONS);
+    for (let i = 0; i < maxWordsForCombinations - 1; i++) {
+        for (let j = i + 1; j < maxWordsForCombinations; j++) {
+            const phraseText = `${meaningfulWords[i]} ${meaningfulWords[j]}`;
+            if (!meaningfulPhrases.has(phraseText) && !additionalPhrases.has(phraseText)) {
+                // Only add if it's a meaningful combination (not just random words)
+                if (WordAnalyzer.isMeaningfulCombination(meaningfulWords[i], meaningfulWords[j])) {
+                    additionalPhrases.add(phraseText);
+                    analysis.importanceWeights[phraseText] = 2.0; // Lower weight than consecutive phrases
+                }
+            }
+        }
+    }
+
+    // Add phrases to keyPhrases
+    analysis.keyPhrases.push(...Array.from(meaningfulPhrases), ...Array.from(additionalPhrases));
+
+    // Add the full query as a key phrase if it's meaningful and not too long
+    if (meaningfulWords.length >= 2 && meaningfulWords.length <= 5 && WordAnalyzer.isMeaningfulPhrase(normalized)) {
+        const fullPhrase = meaningfulWords.join(' ');
+        if (!analysis.keyPhrases.includes(fullPhrase)) {
+            analysis.keyPhrases.push(fullPhrase);
+            analysis.importanceWeights[fullPhrase] = 3.0; // Highest weight for full phrase
+        }
+    }
+
+    // Cache the result
+    queryAnalysisCache.set(queryText, analysis);
+
+    return analysis;
+}
+
+/**
+ * Unified word and phrase analysis for query processing
+ * Consolidates multiple analysis functions for better performance
+ */
+const WordAnalyzer = {
+    /**
+     * Check if a word is part of query structure (inline optimization)
+     * @param {string} word - Word to check
+     * @param {string[]} allWords - All words in the query
+     * @param {number} position - Position of the word
+     * @returns {boolean} - True if this is query structure
+     */
+    isQueryStructure(word, allWords, position) {
+        const lowerWords = allWords.map(w => w?.toLowerCase());
+        const firstWord = lowerWords[0];
+        const secondWord = lowerWords[1];
+
+        // "Tell me about X", "What/How/Why/When/Where/Who about X", "Can you X", "Please X"
+        return (position <= 2 && (firstWord === 'tell' || secondWord === 'tell')) ||
+               (position <= 1 && QUESTION_WORDS.includes(firstWord)) ||
+               (position <= 1 && firstWord === 'can' && secondWord === 'you') ||
+               (position === 0 && firstWord === 'please');
+    },
+
+    /**
+     * Check if a phrase or word combination is meaningful
+     * @param {string|string[]} input - Single phrase string or array of words
+     * @returns {boolean} - True if meaningful
+     */
+    isMeaningfulPhrase(input) {
+        const words = Array.isArray(input) ? input : input.split(' ');
+
+        // Avoid phrases that are just stop words
+        if (words.every(word => STOP_WORDS.has(word.toLowerCase()))) return false;
+
+        // Prefer phrases with at least one non-stop word
+        if (words.some(word => !STOP_WORDS.has(word.toLowerCase()))) {
+            // Avoid very common combinations
+            const phraseText = words.join(' ');
+            return !COMMON_PHRASES.some(common => phraseText.includes(common));
+        }
+
+        return false;
+    },
+
+    /**
+     * Check if two words form a meaningful combination
+     * @param {string} word1 - First word
+     * @param {string} word2 - Second word
+     * @returns {boolean} - True if the combination is likely meaningful
+     */
+    isMeaningfulCombination(word1, word2) {
+        const lowerWord1 = word1.toLowerCase();
+        const lowerWord2 = word2.toLowerCase();
+
+        // Skip if either word is a stop word, identical, or too short
+        if (STOP_WORDS.has(lowerWord1) || STOP_WORDS.has(lowerWord2) ||
+            lowerWord1 === lowerWord2 ||
+            (word1.length < 3 && !/\b[A-Z]/.test(word1)) ||
+            (word2.length < 3 && !/\b[A-Z]/.test(word2))) {
+            return false;
+        }
+
+        return true;
+    },
+};
+
+/**
+ * Context-aware check if a word is meaningful for search purposes
+ * @param {string} word - Word to check
+ * @param {string[]} allWords - All words in the query for context
+ * @param {number} [position] - Position of the word in the query (optional)
+ * @returns {boolean} - True if the word should be considered meaningful
+ */
+function isMeaningfulWord(word, allWords, position = -1) {
+    // Create cache key that includes word, position, and query context
+    const queryHash = allWords.join('|').slice(0, 50);
+    const cacheKey = `${word}|${position}|${queryHash}`;
+
+    // Check cache first
+    if (wordProcessingCache.has(cacheKey)) {
+        return wordProcessingCache.get(cacheKey);
+    }
+
+    // Cache size management
+    if (wordProcessingCache.size >= WORD_PROCESSING_CACHE_MAX_SIZE) {
+        const entries = Array.from(wordProcessingCache.keys());
+        for (let i = 0; i < entries.length / 2; i++) {
+            wordProcessingCache.delete(entries[i]);
+        }
+    }
+
+    // Basic length check - early return for optimization
+    if (word.length <= 2) {
+        wordProcessingCache.set(cacheKey, false);
+        return false;
+    }
+
+    // Always keep technical terms and acronyms
+    if (/\b[A-Z]{2,}\b/.test(word)) {
+        wordProcessingCache.set(cacheKey, true);
+        return true;
+    }
+
+    // Always keep numbers
+    if (/\d/.test(word)) {
+        wordProcessingCache.set(cacheKey, true);
+        return true;
+    }
+
+    // Context-aware stop word filtering
+    const lowerWord = word.toLowerCase();
+
+    // Check if this word is part of query structure (inlined for performance)
+    if (QUERY_STRUCTURE_WORDS.has(lowerWord)) {
+        if (WordAnalyzer.isQueryStructure(word, allWords, position)) {
+            wordProcessingCache.set(cacheKey, false);
+            return false;
+        }
+        wordProcessingCache.set(cacheKey, true);
+        return true;
+    }
+
+    // Standard stop word check for other words
+    if (STOP_WORDS.has(lowerWord)) {
+        // Allow stop words that might be part of titles or proper nouns
+        if (word.length >= 5 || position === 0) {
+            wordProcessingCache.set(cacheKey, true);
+            return true;
+        }
+        wordProcessingCache.set(cacheKey, false);
+        return false;
+    }
+
+    wordProcessingCache.set(cacheKey, true);
+    return true;
+}
+
+/**
+ * Calculate relevance score for a chunk based on keyword matches and proximity
+ * @param {string} chunkText - The chunk text to score
+ * @param {object} queryAnalysis - Analyzed query from analyzeQuery()
+ * @returns {object} - Scoring breakdown and total score
+ */
+function calculateRelevanceScore(chunkText, queryAnalysis) {
+    const chunk = chunkText.toLowerCase();
+    let totalScore = 0;
+    const breakdown = {
+        keywordMatches: 0,
+        phraseMatches: 0,
+        technicalMatches: 0,
+        proximityBonus: 0,
+        total: 0,
+    };
+
+    // Score keyword matches
+    queryAnalysis.keywords.forEach(keyword => {
+        const count = (chunk.match(new RegExp(keyword, 'gi')) || []).length;
+        if (count > 0) {
+            const weight = queryAnalysis.importanceWeights[keyword] || 1.0;
+            breakdown.keywordMatches += count * weight;
+        }
+    });
+
+    // Score phrase matches (higher weight for exact phrases)
+    queryAnalysis.keyPhrases.forEach(phrase => {
+        if (chunk.includes(phrase)) {
+            const weight = queryAnalysis.importanceWeights[phrase] || 2.0;
+            breakdown.phraseMatches += weight;
+        }
+    });
+
+    // Score technical term matches (highest weight)
+    queryAnalysis.technicalTerms.forEach(term => {
+        const regex = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        const count = (chunk.match(regex) || []).length;
+        if (count > 0) {
+            const weight = queryAnalysis.importanceWeights[term.toLowerCase()] || 3.0;
+            breakdown.technicalMatches += count * weight;
+        }
+    });
+
+    // Calculate proximity bonus (terms close together score higher)
+    if (queryAnalysis.keywords.length > 1) {
+        const positions = [];
+        queryAnalysis.keywords.forEach(keyword => {
+            let match;
+            const regex = new RegExp(keyword, 'gi');
+            while ((match = regex.exec(chunk)) !== null) {
+                positions.push(match.index);
+            }
+        });
+
+        if (positions.length > 1) {
+            // Calculate average distance between consecutive terms
+            let totalDistance = 0;
+            for (let i = 1; i < positions.length; i++) {
+                totalDistance += positions[i] - positions[i - 1];
+            }
+            const avgDistance = totalDistance / (positions.length - 1);
+
+            // Bonus for terms within 100 characters of each other
+            if (avgDistance < 100) {
+                breakdown.proximityBonus = Math.max(0, (100 - avgDistance) / 100) * SCORING_WEIGHTS.PROXIMITY;
+            }
+        }
+    }
+
+    // Calculate total score with diminishing returns for multiple matches
+    totalScore = breakdown.keywordMatches * SCORING_WEIGHTS.KEYWORD +
+                 breakdown.phraseMatches * SCORING_WEIGHTS.PHRASE +
+                 breakdown.technicalMatches * SCORING_WEIGHTS.TECHNICAL +
+                 breakdown.proximityBonus;
+
+    // Apply diminishing returns (logarithmic scaling)
+    if (totalScore > 5) {
+        totalScore = 5 + Math.log(totalScore - 4);
+    }
+
+    breakdown.total = totalScore;
+    return breakdown;
+}
+
+/**
+ * Intelligent hybrid search for technical queries with relevance scoring
+ * @param {string} collectionId - Collection ID to query
+ * @param {string} searchText - Original search text
+ * @param {object} queryAnalysis - Analyzed query structure
+ * @param {number} topK - Number of results to return
+ * @returns {Promise<{ hashes: number[], metadata: object[]}>} - Ranked results
+ */
+/**
+ * Formats keywords for display, prioritizing phrases over individual keywords
+ * @param {string[]} foundKeywords - Array of keywords found in the search
+ * @returns {string} - Formatted keyword string with phrases first
+ */
+function formatKeywordsForDisplay(foundKeywords) {
+    if (!foundKeywords || foundKeywords.length === 0) return '';
+
+    // Separate phrases from individual keywords
+    const phrases = foundKeywords.filter(k => k.includes(' '));
+    const individualKeywords = foundKeywords.filter(k => !k.includes(' '));
+
+    // Combine with phrases first, then individual keywords
+    const allKeywords = [...phrases, ...individualKeywords];
+    return allKeywords.join(', ');
+}
+
+async function intelligentHybridSearch(collectionId, searchText, queryAnalysis, topK, threshold = settings.score_threshold, allowChunkMerging = false) {
+    const semanticResults = new Map(); // hash -> semantic data
+    const keywordResults = new Map(); // hash -> keyword data
+    const intersectionBonus = SCORING_WEIGHTS.INTERSECTION_BONUS; // Bonus for chunks that appear in both semantic and keyword results
+
+    // 1. SEMANTIC SEARCH: Get semantic results with API scores
+    try {
+        const semanticSearchCount = Math.max(settings.chunk_count_db * SEARCH_LIMITS.SEMANTIC_SEARCH_MULTIPLIER, 20);
+        const semanticResponse = await queryCollectionBasic(collectionId, searchText, semanticSearchCount, settings.score_threshold);
+
+        for (let i = 0; i < semanticResponse.hashes.length && i < semanticResponse.metadata.length; i++) {
+            const hash = semanticResponse.hashes[i];
+            const metadata = semanticResponse.metadata[i];
+            const text = metadata?.text || '[No text available]';
+            //MARK: scores pulled here
+            const semanticScore = Math.max(0, metadata?.score !== undefined ? metadata.score : (SCORING_WEIGHTS.DEFAULT_SEMANTIC_SCORE - (i * SCORING_WEIGHTS.SEMANTIC_DECAY)));
+
+            console.debug(`[Vectors] Semantic result ${i}: hash=${hash}, score=${semanticScore.toFixed(3)}`);
+
+            semanticResults.set(hash, {
+                semanticScore: semanticScore,
+                text: text,
+                index: metadata?.index || i,
+                inIntersection: false, // Will be set to true if also found in keyword search
+            });
+        }
+        console.debug(`[Vectors] Found ${semanticResults.size} semantic results`);
+    } catch (error) {
+        console.warn('Semantic search failed:', error);
+    }
+
+    // 2. KEYWORD SEARCH: Search all chunks for keyword matches
+    const maxChunksToSearch = Math.max(settings.chunk_count_db * 3, SEARCH_LIMITS.MAX_CHUNKS_TO_SEARCH);
+
+    // Prepare search terms with improved strategy
+    // Prioritize: longer phrases > technical terms > individual keywords
+    let searchTerms = [
+        // All key phrases (both consecutive and non-consecutive)
+        ...queryAnalysis.keyPhrases.sort((a, b) => b.length - a.length),
+        // Technical terms
+        ...queryAnalysis.technicalTerms,
+        // Individual keywords (always included as fallback)
+        ...queryAnalysis.keywords,
+    ].filter((term, index, arr) => arr.indexOf(term) === index);
+
+    // Limit search terms to avoid excessive processing
+    const maxSearchTerms = SEARCH_LIMITS.MAX_SEARCH_TERMS;
+    if (searchTerms.length > maxSearchTerms) {
+        searchTerms = searchTerms.slice(0, maxSearchTerms);
+        console.debug(`[Vectors] Limited search terms to ${maxSearchTerms} (was ${searchTerms.length})`);
+    }
+
+    console.debug(`[Vectors] Searching for ${searchTerms.length} terms: ${searchTerms.join(', ')}`);
+    console.debug(`[Vectors] Key phrases: ${queryAnalysis.keyPhrases.length}, Technical terms: ${queryAnalysis.technicalTerms.length}, Keywords: ${queryAnalysis.keywords.length}`);
+
+    // Track covered keywords to avoid redundant searches
+    const coveredKeywords = new Set();
+
+    for (const term of searchTerms) {
+        // Skip individual keywords if they're already covered by successful phrase searches
+        if (!term.includes(' ') && coveredKeywords.has(term.toLowerCase())) {
+            console.debug(`[Vectors] Skipping keyword "${term}" - already covered by phrase search`);
+            continue;
+        }
+
+        try {
+            console.debug(`[Vectors] Searching for: "${term}"`);
+            const isPhrase = term.includes(' ');
+            const isTechnicalTerm = queryAnalysis.technicalTerms.includes(term);
+
+            let termResults;
+            if (isTechnicalTerm && !isPhrase) {
+                termResults = await exactKeywordSearch(collectionId, term, maxChunksToSearch, searchText);
+            } else if (isPhrase) {
+                termResults = await exactKeywordSearch(collectionId, term, maxChunksToSearch, searchText);
+            } else {
+                termResults = await queryCollectionBasic(collectionId, term, maxChunksToSearch, settings.score_threshold);
+            }
+
+            console.debug(`[Vectors] Found ${termResults.hashes.length} results for "${term}"`);
+
+            // Mark phrase words as covered
+            if (isPhrase && termResults.hashes.length > 0) {
+                const phraseWords = term.toLowerCase().split(' ').filter(word => word.length > 2);
+                phraseWords.forEach(word => coveredKeywords.add(word));
+                console.debug(`[Vectors] Phrase "${term}" successful - covering: ${phraseWords.join(', ')}`);
+            }
+
+            // Process keyword results
+            for (let i = 0; i < termResults.hashes.length && i < termResults.metadata.length; i++) {
+                const hash = termResults.hashes[i];
+                const metadata = termResults.metadata[i];
+                const text = metadata?.text || '';
+
+                // For semantic keyword searches, verify the term is actually in the text
+                if (!isTechnicalTerm && !isPhrase && !text.toLowerCase().includes(term.toLowerCase())) {
+                    continue;
+                }
+
+                const weight = queryAnalysis.importanceWeights[term.toLowerCase()] || 1.0;
+                // Use consistent scoring regardless of position - base score per term type
+                const baseScore = isPhrase ? 3.0 : (isTechnicalTerm ? 2.0 : 1.0);
+                const termScore = baseScore * weight;
+
+                if (keywordResults.has(hash)) {
+                    // Check if this term is already counted for this chunk
+                    const existing = keywordResults.get(hash);
+                    if (!existing.foundKeywords.includes(term)) {
+                        // Check if this chunk was found via a phrase that contains this term
+                        const hasPhraseWithTerm = existing.foundKeywords.some(kw => kw.includes(' ') && kw.includes(term));
+                        if (!hasPhraseWithTerm) {
+                            existing.keywordScore += termScore;
+                            existing.foundKeywords.push(term);
+                            console.debug(`[Vectors] Updated keyword result ${hash}: +${termScore.toFixed(3)} for "${term}"`);
+                        } else {
+                            console.debug(`[Vectors] Skipping individual keyword "${term}" for chunk ${hash} - already covered by phrase`);
+                        }
+                    } else {
+                        console.debug(`[Vectors] Skipping duplicate term "${term}" for chunk ${hash}`);
+                    }
+                } else {
+                    keywordResults.set(hash, {
+                        keywordScore: termScore,
+                        foundKeywords: [term],
+                        text: text,
+                        index: metadata?.index || i,
+                        inIntersection: false,
+                    });
+                    console.debug(`[Vectors] New keyword result ${hash}: ${termScore.toFixed(3)} for "${term}"`);
+                }
+            }
+        } catch (error) {
+            console.warn(`Keyword search failed for "${term}":`, error);
+        }
+    }
+
+    console.debug(`[Vectors] Found ${keywordResults.size} keyword results`);
+
+    // 3. FIND INTERSECTION: Mark chunks that appear in both semantic and keyword results
+    let intersectionCount = 0;
+
+    for (const [hash, semanticData] of semanticResults) {
+        if (keywordResults.has(hash)) {
+            semanticData.inIntersection = true;
+            keywordResults.get(hash).inIntersection = true;
+            intersectionCount++;
+            console.debug(`[Vectors] Intersection found: ${hash} (+${intersectionBonus} bonus)`);
+        }
+    }
+
+    console.debug(`[Vectors] Found ${intersectionCount} chunks in both semantic and keyword results`);
+
+    // 4. COMBINE AND NORMALIZE SCORES
+    const allResults = new Map();
+
+    // Add semantic results
+    for (const [hash, data] of semanticResults) {
+        const intersectionBonusValue = data.inIntersection ? intersectionBonus : 0;
+        const normalizedKeywordScore = 0.5; // Default for semantic-only results
+
+        allResults.set(hash, {
+            hash,
+            semanticScore: data.semanticScore,
+            keywordScore: 0, // Semantic results don't have keyword scores
+            normalizedKeywordScore: normalizedKeywordScore,
+            intersectionBonus: intersectionBonusValue,
+            finalScore: (data.semanticScore * 0.2) + (normalizedKeywordScore * 0.7) + intersectionBonusValue,
+            text: data.text,
+            index: data.index,
+            source: 'semantic',
+            foundKeywords: [], // No keywords found for semantic-only results
+        });
+    }
+
+    // Add keyword results (skip if already added from semantic)
+    for (const [hash, data] of keywordResults) {
+        if (allResults.has(hash)) {
+            // Update existing semantic result with keyword data
+            const existing = allResults.get(hash);
+            const normalizedKeywordScore = 1 / (1 + Math.exp(-data.keywordScore * SCORING_WEIGHTS.NORMALIZATION_SCALE));
+            const intersectionBonusValue = data.inIntersection ? intersectionBonus : 0;
+
+            existing.keywordScore = data.keywordScore;
+            existing.normalizedKeywordScore = normalizedKeywordScore;
+            existing.intersectionBonus = intersectionBonusValue;
+            existing.finalScore = (existing.semanticScore * 0.2) + (normalizedKeywordScore * 0.7) + intersectionBonusValue;
+            existing.source = 'both';
+            existing.foundKeywords = data.foundKeywords;
+        } else {
+            // New keyword-only result
+            const normalizedKeywordScore = 1 / (1 + Math.exp(-data.keywordScore * SCORING_WEIGHTS.NORMALIZATION_SCALE));
+            const intersectionBonusValue = data.inIntersection ? intersectionBonus : 0;
+
+            allResults.set(hash, {
+                hash,
+                semanticScore: 0, // Keyword-only results don't have semantic scores
+                keywordScore: data.keywordScore,
+                normalizedKeywordScore: normalizedKeywordScore,
+                intersectionBonus: intersectionBonusValue,
+                finalScore: (0 * 0.2) + (normalizedKeywordScore * 0.7) + intersectionBonusValue,
+                text: data.text,
+                index: data.index,
+                source: 'keyword',
+                foundKeywords: data.foundKeywords,
+            });
+        }
+    }
+
+    // 5. SORT AND RETURN TOP RESULTS
+    const scoredResults = Array.from(allResults.values())
+        .filter(result => result.finalScore >= threshold)
+        .sort((a, b) => b.finalScore - a.finalScore)
+        .slice(0, settings.chunk_count_db);
+
+    console.log(`[Vectors] Final Results (${scoredResults.length} items):`);
+    scoredResults.forEach((result, index) => {
+        const keywordsDisplay = result.foundKeywords && result.foundKeywords.length > 0
+            ? ` [${formatKeywordsForDisplay(result.foundKeywords)}]`
+            : '';
+        console.log(`[Vectors]   ${index + 1}. Score: ${result.finalScore.toFixed(3)} (${result.source})${keywordsDisplay}`);
+        console.log(`[Vectors]      Semantic: ${result.semanticScore.toFixed(3)}, Keyword: ${result.keywordScore.toFixed(3)}, Normalized: ${result.normalizedKeywordScore.toFixed(3)}, Intersection: ${result.intersectionBonus.toFixed(3)}`);
+        console.log(`[Vectors]      Text: "${result.text.substring(0, 80)}..."`);
+    });
+
+    return {
+        hashes: scoredResults.map(r => r.hash),
+        metadata: scoredResults.map(r => ({
+            text: r.text,
+            index: r.index,
+            score: r.finalScore,
+            semanticScore: r.semanticScore,
+            keywordScore: r.keywordScore,
+            normalizedKeywordScore: r.normalizedKeywordScore,
+            intersectionBonus: r.intersectionBonus,
+        })),
+    };
+}
+
+// Make functions available globally for testing
+window['analyzeQuery'] = analyzeQuery;
+window['calculateRelevanceScore'] = calculateRelevanceScore;
+window['smartQueryCollection'] = smartQueryCollection;
+
+
 /**
  * Gets the text to query from the chat
  * @param {object[]} chat Chat messages
@@ -755,6 +1830,7 @@ async function getQueryText(chat, initiator) {
     }
 
     const queryText = hashedMessages.map(x => x.text).join('\n');
+    console.debug('Vectors: Generated query text from', hashedMessages.length, 'messages');
 
     return collapseNewlines(queryText).trim();
 }
@@ -954,26 +2030,10 @@ async function deleteVectorItems(collectionId, hashes) {
  * @param {number} topK - The number of results to return
  * @returns {Promise<{ hashes: number[], metadata: object[]}>} - Hashes of the results
  */
-async function queryCollection(collectionId, searchText, topK) {
-    const args = await getAdditionalArgs([searchText]);
-    const response = await fetch('/api/vector/query', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({
-            ...getVectorsRequestBody(args),
-            collectionId: collectionId,
-            searchText: searchText,
-            topK: topK,
-            source: settings.source,
-            threshold: settings.score_threshold,
-        }),
-    });
-
-    if (!response.ok) {
-        throw new Error(`Failed to query collection ${collectionId}`);
-    }
-
-    return await response.json();
+//MARK: queryCollection
+async function queryCollection(collectionId, searchText, topK, threshold = null) {
+    // Use intelligent search instead of basic API call
+    return await smartQueryCollection(collectionId, searchText, topK, threshold);
 }
 
 /**
@@ -1016,7 +2076,7 @@ async function purgeFileVectorIndex(fileUrl) {
             return;
         }
 
-        console.log(`Vectors: Purging file vector index for ${fileUrl}`);
+        console.debug(`[Vectors] Purging file vector index for ${fileUrl}`);
         const collectionId = getFileCollectionId(fileUrl);
 
         const response = await fetch('/api/vector/purge', {
@@ -1032,7 +2092,7 @@ async function purgeFileVectorIndex(fileUrl) {
             throw new Error(`Could not delete vector index for collection ${collectionId}`);
         }
 
-        console.log(`Vectors: Purged vector index for collection ${collectionId}`);
+        console.debug(`[Vectors] Purged vector index for collection ${collectionId}`);
     } catch (error) {
         console.error('Vectors: Failed to purge file', error);
     }
@@ -1062,7 +2122,7 @@ async function purgeVectorIndex(collectionId) {
             throw new Error(`Could not delete vector index for collection ${collectionId}`);
         }
 
-        console.log(`Vectors: Purged vector index for collection ${collectionId}`);
+        console.debug(`[Vectors] Purged vector index for collection ${collectionId}`);
         return true;
     } catch (error) {
         console.error('Vectors: Failed to purge', error);
@@ -1087,7 +2147,7 @@ async function purgeAllVectorIndexes() {
             throw new Error('Failed to purge all vector indexes');
         }
 
-        console.log('Vectors: Purged all vector indexes');
+        console.debug('[Vectors] Purged all vector indexes');
         toastr.success('All vector indexes purged', 'Purge successful');
     } catch (error) {
         console.error('Vectors: Failed to purge all', error);
@@ -1125,7 +2185,7 @@ async function executeWithWebLlmErrorHandling(func) {
     try {
         return await func();
     } catch (error) {
-        console.log('Vectors: Failed to load WebLLM models', error);
+        console.log('[Vectors] Failed to load WebLLM models', error);
         if (!(error instanceof Error)) {
             return;
         }
@@ -1481,6 +2541,11 @@ jQuery(async () => {
         saveSettingsDebounced();
         toggleSettings();
     });
+    $('#vectors_augment_keyword_search').prop('checked', settings.augment_keyword_search).on('input', () => {
+        settings.augment_keyword_search = $('#vectors_augment_keyword_search').prop('checked');
+        Object.assign(extension_settings.vectors, settings);
+        saveSettingsDebounced();
+    });
     $('#vectors_enabled_files').prop('checked', settings.enabled_files).on('input', () => {
         settings.enabled_files = $('#vectors_enabled_files').prop('checked');
         Object.assign(extension_settings.vectors, settings);
@@ -1810,14 +2875,21 @@ jQuery(async () => {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'db-search',
         callback: async (args, query) => {
-            const clamp = (v) => Number.isNaN(v) ? null : Math.min(1, Math.max(0, v));
-            const threshold = clamp(Number(args?.threshold ?? settings.score_threshold));
             const validateCount = (v) => Number.isNaN(v) || !Number.isInteger(v) || v < 1 ? null : v;
             const count = validateCount(Number(args?.count)) ?? settings.chunk_count_db;
+            const threshold = Number(args?.threshold ?? settings.score_threshold);
             const source = String(args?.source ?? '');
             const attachments = source ? getDataBankAttachmentsForSource(source, false) : getDataBankAttachments(false);
             const collectionIds = await ingestDataBankAttachments(String(source));
-            const queryResults = await queryMultipleCollections(collectionIds, String(query), count, threshold);
+
+            // Use smart search for each collection individually
+            const queryResults = {};
+            for (const collectionId of collectionIds) {
+                const searchType = settings.augment_keyword_search ? 'enhanced' : 'basic';
+                console.debug(`[Vectors] Slash command querying collection ${collectionId} with ${searchType} search`);
+                const collectionResults = await smartQueryCollection(collectionId, String(query), count, threshold);
+                queryResults[collectionId] = collectionResults;
+            }
 
             // Get URLs
             const urls = Object
@@ -1830,7 +2902,12 @@ jQuery(async () => {
             const getChunksText = () => {
                 let textResult = '';
                 for (const collectionId in queryResults) {
-                    const metadata = queryResults[collectionId].metadata?.filter(x => x.text)?.sort((a, b) => a.index - b.index)?.map(x => x.text)?.filter(onlyUnique) || [];
+                    // Get the original metadata objects and extract text
+                    const originalMetadata = queryResults[collectionId].metadata?.filter(x => x.text) || [];
+                    const sortedMetadata = originalMetadata
+                        .sort((a, b) => a.index - b.index)
+                        .filter((item, index, arr) => arr.findIndex(x => x.text === item.text) === index);
+                    const metadata = sortedMetadata.map(x => x.text);
                     textResult += metadata.join('\n') + '\n\n';
                 }
                 return textResult;
