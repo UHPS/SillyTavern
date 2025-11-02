@@ -6021,14 +6021,14 @@ async function processImageAttachment(message, { imageUrls }) {
         return;
     }
 
-    for (const imageUrl of imageUrls) {
+    for (const [index, imageUrl] of imageUrls.entries()) {
         if (!imageUrl) {
             continue;
         }
 
         let url = imageUrl;
         if (isDataURL(url)) {
-            const fileName = `inline_image_${Date.now().toString()}`;
+            const fileName = `inline_image_${Date.now().toString()}_${index}`;
             const [mime, base64] = /^data:(.*?);base64,(.*)$/.exec(imageUrl).slice(1);
             url = await saveBase64AsFile(base64, message.name, fileName, mime.split('/')[1]);
         }
