@@ -18,7 +18,6 @@ import {
     getMediaDisplay,
     getMediaIndex,
     getRequestHeaders,
-    getStoppingStrings,
     is_send_press,
     main_api,
     name1,
@@ -137,34 +136,6 @@ const oai_max_temp = 2.0;
 const claude_max_temp = 1.0;
 const openrouter_website_model = 'OR_Website';
 const openai_max_stop_strings = 4;
-
-const textCompletionModels = [
-    'gpt-3.5-turbo-instruct',
-    'gpt-3.5-turbo-instruct-0914',
-    'text-davinci-003',
-    'text-davinci-002',
-    'text-davinci-001',
-    'text-curie-001',
-    'text-babbage-001',
-    'text-ada-001',
-    'code-davinci-002',
-    'code-davinci-001',
-    'code-cushman-002',
-    'code-cushman-001',
-    'text-davinci-edit-001',
-    'code-davinci-edit-001',
-    'text-embedding-ada-002',
-    'text-similarity-davinci-001',
-    'text-similarity-curie-001',
-    'text-similarity-babbage-001',
-    'text-similarity-ada-001',
-    'text-search-davinci-doc-001',
-    'text-search-curie-doc-001',
-    'text-search-babbage-doc-001',
-    'text-search-ada-doc-001',
-    'code-search-babbage-code-001',
-    'code-search-ada-code-001',
-];
 
 let biasCache = undefined;
 export let model_list = [];
@@ -2238,7 +2209,6 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
     const isMoonshot = oai_settings.chat_completion_source == chat_completion_sources.MOONSHOT;
     const isAzureOpenAI = oai_settings.chat_completion_source == chat_completion_sources.AZURE_OPENAI;
     const isZai = oai_settings.chat_completion_source == chat_completion_sources.ZAI;
-    const isTextCompletion = isOAI && textCompletionModels.includes(oai_settings.openai_model);
     const isQuiet = type === 'quiet';
     const isImpersonate = type === 'impersonate';
     const isContinue = type === 'continue';
@@ -2345,10 +2315,6 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
         generate_data['provider'] = oai_settings.openrouter_providers;
         generate_data['allow_fallbacks'] = oai_settings.openrouter_allow_fallbacks;
         generate_data['middleout'] = oai_settings.openrouter_middleout;
-
-        if (isTextCompletion) {
-            generate_data['stop'] = getStoppingStrings(isImpersonate, isContinue);
-        }
     }
 
     if (isGoogle || isVertexAI) {
@@ -2666,11 +2632,7 @@ function parseChatCompletionLogprobs(data) {
             if (!data.choices?.length) {
                 return null;
             }
-            // OpenAI Text Completion API is treated as a chat completion source
-            // by SillyTavern, hence its presence in this function.
-            return textCompletionModels.includes(getChatCompletionModel())
-                ? parseOpenAITextLogprobs(data.choices[0]?.logprobs)
-                : parseOpenAIChatLogprobs(data.choices[0]?.logprobs);
+            return parseOpenAIChatLogprobs(data.choices[0]?.logprobs);
         default:
         // implement other chat completion sources here
     }
@@ -2702,33 +2664,6 @@ function parseOpenAIChatLogprobs(logprobs) {
         const topLogprobs = chosenTopToken
             ? top_logprobs.map(toTuple)
             : [...top_logprobs.map(toTuple), [token, logprob]];
-        return { token, topLogprobs };
-    });
-}
-
-/**
- * parseOpenAITextLogprobs receives a `logprobs` response from OpenAI's text
- * completion API and converts into the structure used by the Token Probabilities
- * view.
- * @param {{tokens: string[], token_logprobs: number[], top_logprobs: { token: string, logprob: number }[][]}} logprobs
- * @returns {import('./logprobs.js').TokenLogprobs[] | null} converted logprobs
- */
-function parseOpenAITextLogprobs(logprobs) {
-    const { tokens, token_logprobs, top_logprobs } = logprobs ?? {};
-
-    if (!Array.isArray(tokens)) {
-        return null;
-    }
-
-    return tokens.map((token, i) => {
-        // Add the chosen token to top_logprobs if it's not already there, then
-        // convert to a list of [token, logprob] pairs
-        /** @type {any[]} */
-        const topLogprobs = top_logprobs[i] ? Object.entries(top_logprobs[i]) : [];
-        const chosenTopToken = topLogprobs.some(([topToken]) => token === topToken);
-        if (!chosenTopToken) {
-            topLogprobs.push([token, token_logprobs[i]]);
-        }
         return { token, topLogprobs };
     });
 }

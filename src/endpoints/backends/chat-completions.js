@@ -27,7 +27,6 @@ import {
 import {
     convertClaudeMessages,
     convertGooglePrompt,
-    convertTextCompletionPrompt,
     convertCohereMessages,
     convertMistralMessages,
     convertAI21Messages,
@@ -48,7 +47,6 @@ import {
     getSentencepiceTokenizer,
     getTiktokenTokenizer,
     sentencepieceTokenizers,
-    TEXT_COMPLETION_MODELS,
     webTokenizers,
     getWebTokenizer,
 } from '../tokenizers.js';
@@ -1765,21 +1763,16 @@ router.post('/generate', function (request, response) {
     let apiKey;
     let headers;
     let bodyParams;
-    const isTextCompletion = Boolean(request.body.model && TEXT_COMPLETION_MODELS.includes(request.body.model)) || typeof request.body.messages === 'string';
 
     if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI) {
         apiUrl = new URL(request.body.reverse_proxy || API_OPENAI).toString();
         apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.OPENAI);
         headers = {};
-        bodyParams = {
-            logprobs: request.body.logprobs,
-            top_logprobs: undefined,
-        };
+        bodyParams = {};
 
-        // Adjust logprobs params for Chat Completions API, which expects { top_logprobs: number; logprobs: boolean; }
-        if (!isTextCompletion && bodyParams.logprobs > 0) {
-            bodyParams.top_logprobs = bodyParams.logprobs;
-            bodyParams.logprobs = true;
+        if (request.body.logprobs > 0) {
+            bodyParams['top_logprobs'] = request.body.logprobs;
+            bodyParams['logprobs'] = true;
         }
 
         if (getConfigValue('openai.randomizeUserId', false, 'boolean')) {
@@ -1849,15 +1842,11 @@ router.post('/generate', function (request, response) {
         apiUrl = request.body.custom_url;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.CUSTOM);
         headers = {};
-        bodyParams = {
-            logprobs: request.body.logprobs,
-            top_logprobs: undefined,
-        };
+        bodyParams = {};
 
-        // Adjust logprobs params for Chat Completions API, which expects { top_logprobs: number; logprobs: boolean; }
-        if (!isTextCompletion && bodyParams.logprobs > 0) {
-            bodyParams.top_logprobs = bodyParams.logprobs;
-            bodyParams.logprobs = true;
+        if (request.body.logprobs > 0) {
+            bodyParams['top_logprobs'] = request.body.logprobs;
+            bodyParams['logprobs'] = true;
         }
 
         mergeObjectWithYaml(bodyParams, request.body.custom_include_body);
@@ -1995,10 +1984,7 @@ router.post('/generate', function (request, response) {
         bodyParams['stop'] = request.body.stop;
     }
 
-    const textPrompt = isTextCompletion ? convertTextCompletionPrompt(request.body.messages) : '';
-    const endpointUrl = isTextCompletion && request.body.chat_completion_source !== CHAT_COMPLETION_SOURCES.OPENROUTER ?
-        `${apiUrl}/completions` :
-        `${apiUrl}/chat/completions`;
+    const endpointUrl = `${apiUrl}/chat/completions`;
 
     const controller = new AbortController();
     request.socket.removeAllListeners('close');
@@ -2006,7 +1992,7 @@ router.post('/generate', function (request, response) {
         controller.abort();
     });
 
-    if (!isTextCompletion && Array.isArray(request.body.tools) && request.body.tools.length > 0) {
+    if (Array.isArray(request.body.tools) && request.body.tools.length > 0) {
         bodyParams['tools'] = request.body.tools;
         bodyParams['tool_choice'] = request.body.tool_choice;
     }
@@ -2023,8 +2009,7 @@ router.post('/generate', function (request, response) {
     }
 
     const requestBody = {
-        'messages': isTextCompletion === false ? request.body.messages : undefined,
-        'prompt': isTextCompletion === true ? textPrompt : undefined,
+        'messages': request.body.messages,
         'model': request.body.model,
         'temperature': request.body.temperature,
         'max_tokens': request.body.max_tokens,
@@ -2034,7 +2019,7 @@ router.post('/generate', function (request, response) {
         'frequency_penalty': request.body.frequency_penalty,
         'top_p': request.body.top_p,
         'top_k': request.body.top_k,
-        'stop': isTextCompletion === false ? request.body.stop : undefined,
+        'stop': request.body.stop,
         'logit_bias': request.body.logit_bias,
         'seed': request.body.seed,
         'n': request.body.n,
