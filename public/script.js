@@ -5641,7 +5641,7 @@ function extractTitleFromData(data) {
  * @param {object} [options] Extraction options
  * @param {string} [options.mainApi] Main API to use
  * @param {string} [options.chatCompletionSource] Chat completion source
- * @returns {string[]|undefined} Extracted images or undefined if none found
+ * @returns {string[]} Extracted images or empty array
  */
 function extractImagesFromData(data, { mainApi = null, chatCompletionSource = null } = {}) {
     switch (mainApi ?? main_api) {
@@ -5651,7 +5651,7 @@ function extractImagesFromData(data, { mainApi = null, chatCompletionSource = nu
                 case chat_completion_sources.MAKERSUITE: {
                     const inlineData = data?.responseContent?.parts?.filter(x => x.inlineData)?.map(x => x.inlineData);
                     if (Array.isArray(inlineData) && inlineData.length > 0) {
-                        return inlineData.map(x => `data:${x.mimeType};base64,${x.data}`);
+                        return inlineData.map(x => `data:${x.mimeType};base64,${x.data}`).filter(isDataURL);
                     }
                 } break;
                 case chat_completion_sources.OPENROUTER: {
@@ -5665,7 +5665,7 @@ function extractImagesFromData(data, { mainApi = null, chatCompletionSource = nu
         } break;
     }
 
-    return undefined;
+    return [];
 }
 
 /**
