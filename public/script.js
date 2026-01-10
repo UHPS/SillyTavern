@@ -1445,7 +1445,7 @@ export async function redisplayChat({ targetChat = chat, startIndex = 0, fade = 
     //Remove messages after index.
     messageElements.filter(`.mes[mesid="${startIndex}"]`).nextAll('.mes').addBack().remove();
 
-    let t1 = performance.now();
+    const t1 = performance.now();
 
     const messages = targetChat.slice(startIndex);
 
@@ -1453,7 +1453,7 @@ export async function redisplayChat({ targetChat = chat, startIndex = 0, fade = 
         const lastMessage = messages.pop();
 
         const newMessageElements = messages.map( (message, offset) => {
-            let i = startIndex + offset;
+            const i = startIndex + offset;
             const messageElement = addOneMessage(message, { scroll: false, forceId: i, showSwipes: false, insert: false });
 
             return messageElement[0];
