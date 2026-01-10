@@ -1476,7 +1476,7 @@ export async function redisplayChat({ targetChat = chat, startIndex = 0, fade = 
     applyStylePins();
     updateEditArrowClasses();
 
-    console.info(`Rendered ${targetChat.length - startIndex} messages in ${(performance.now() - t1) / 1000} seconds.`);
+    console.info(`Rendered ${targetChat.length - startIndex} messages in ${((performance.now() - t1) / 1000).toFixed(3)} seconds.`);
 }
 
 export function scrollOnMediaLoad() {
