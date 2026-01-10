@@ -703,7 +703,6 @@ async function firstLoadInit() {
     initDynamicStyles();
     initTags();
     initBookmarks();
-    initMacros();
     await getUserAvatars(true, user_avatar);
     await getCharacters();
     await getBackgrounds();
@@ -2175,13 +2174,16 @@ export function appendMediaToMessage(mes, messageElement, scrollBehavior = SCROL
         }
         const newChatHeight = chatElement.prop('scrollHeight');
         const diff = newChatHeight - chatHeight;
+        if (Math.abs(diff) < 1) {
+            return;
+        }
         chatElement.scrollTop(scrollPosition + diff);
     };
 
     // Set media display attribute
     messageElement.attr('data-media-display', mediaDisplay);
     // Toggle text visibility
-    messageElement.find('.mes_text').toggleClass('displayNone', hideMessageText);
+    messageElement.find('.mes_text').toggleClass('inline_media', hideMessageText);
 
     /**
      * Appends a single image attachment to the message element.
@@ -7797,6 +7799,10 @@ export async function getSettings() {
 
         selected_button = settings.selected_button;
 
+        // TODO: Move me into firstLoadInit when experimental toggle is removed
+        // power_user.experimental_macro_engine
+        initMacros();
+
         if (data.enable_extensions) {
             const enableAutoUpdate = Boolean(data.enable_extensions_auto_update);
             const isVersionChanged = settings.currentVersion !== currentVersion;
@@ -10041,7 +10047,9 @@ export async function swipe(event, direction, { source, repeated, message = chat
         thisMesDiv.css('height', thisMesDivHeight);
         expandNewMessage(thisMesDiv);
 
-        appendMediaToMessage(chat[mesId], thisMesDiv);
+        if (run_generate) {
+            appendMediaToMessage(chat[mesId], thisMesDiv);
+        }
 
         await eventSource.emit(event_types.MESSAGE_SWIPED, (mesId));
 
