@@ -1449,8 +1449,6 @@ export async function redisplayChat({ targetChat = chat, startIndex = 0, fade = 
     const messages = targetChat.slice(startIndex);
 
     if (messages.length > 0) {
-        const lastMessage = messages.pop();
-
         const newMessageElements = messages.map( (message, offset) => {
             const i = startIndex + offset;
             const messageElement = addOneMessage(message, { scroll: false, forceId: i, showSwipes: false, insert: false });
@@ -1458,12 +1456,8 @@ export async function redisplayChat({ targetChat = chat, startIndex = 0, fade = 
             return messageElement[0];
         });
 
-        const lastMessageId = targetChat.length - 1;
-        const lastMessageElement = addOneMessage(lastMessage, { scroll: false, forceId: lastMessageId, showSwipes: false, insert: false });
-
         //The last_mes has been removed, add it to the new last message.
-        lastMessageElement.addClass('last_mes');
-        newMessageElements.push(lastMessageElement[0]);
+        newMessageElements.at(-1).classList.add('last_mes');
 
         //Append to chat in one DOM update.
         chatElement.append(newMessageElements);
