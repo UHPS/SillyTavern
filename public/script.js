@@ -1438,7 +1438,6 @@ export async function printMessages() {
  * @param {Boolean} [options.fade=true] When false, the swipe chevrons will not fade in.
  */
 export async function redisplayChat({ targetChat = chat, startIndex = 0, fade = true } = {}) {
-    //.find is faster than .children.
     const messageElements = chatElement.find('.mes');
     messageElements.removeClass('last_mes');
 
