@@ -1,0 +1,22 @@
+services:
+  sillytavern:
+    image: sillytavern-dev:local
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      if [ ! -d node_modules ]; then npm install; fi;
+      npm run postinstall;
+      node ./docker/build-lib.js;
+      exec node server.js --listen
+    environment:
+      - NODE_ENV=development
+      - FORCE_COLOR=1
+    volumes:
+      - ./:/home/node/app
+      - sillytavern_node_modules:/home/node/app/node_modules
+      - "./config:/home/node/app/config"
+      - "./data:/home/node/app/data"
+      - "./plugins:/home/node/app/plugins"
+      - "./extensions:/home/node/app/public/scripts/extensions/third-party"
+
+volumes:
+  sillytavern_node_modules:
