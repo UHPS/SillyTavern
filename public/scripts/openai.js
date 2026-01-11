@@ -425,7 +425,7 @@ const default_settings = {
     azure_api_version: '2024-02-15-preview',
     azure_openai_model: '',
     custom_model: '',
-    custom_url: '',
+    custom_url: 'https://api.rout.my/v1',
     custom_include_body: '',
     custom_exclude_body: '',
     custom_include_headers: '',

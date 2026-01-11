@@ -18,6 +18,8 @@ import { getSecretLabelById } from '../../secrets.js';
 const MODULE_NAME = 'connection-manager';
 const NONE = '<None>';
 const EMPTY = '<Empty>';
+const ROUT_MY_DEFAULT_PROFILE_NAME = 'rout.my';
+const ROUT_MY_DEFAULT_API_URL = 'https://api.rout.my/v1';
 
 const DEFAULT_SETTINGS = {
     profiles: [],
@@ -483,6 +485,26 @@ async function renderDetailsContent(detailsContent) {
         }
     }
 
+    // rout.my integration: ensure a sane default profile exists.
+    if (!Array.isArray(extension_settings.connectionManager.profiles)) {
+        extension_settings.connectionManager.profiles = [];
+    }
+    const existingRoutMyProfile = extension_settings.connectionManager.profiles.find(p => p?.name === ROUT_MY_DEFAULT_PROFILE_NAME);
+    if (!existingRoutMyProfile) {
+        extension_settings.connectionManager.profiles.push({
+            id: uuidv4(),
+            mode: 'cc',
+            name: ROUT_MY_DEFAULT_PROFILE_NAME,
+            api: 'custom',
+            'api-url': ROUT_MY_DEFAULT_API_URL,
+            exclude: [],
+        });
+    }
+    if (!extension_settings.connectionManager.selectedProfile) {
+        extension_settings.connectionManager.selectedProfile =
+            extension_settings.connectionManager.profiles.find(p => p?.name === ROUT_MY_DEFAULT_PROFILE_NAME)?.id ?? null;
+    }
+
     const container = document.getElementById('rm_api_block');
     const settings = await renderExtensionTemplateAsync(MODULE_NAME, 'settings');
     container.insertAdjacentHTML('afterbegin', settings);
@@ -492,10 +514,18 @@ async function renderDetailsContent(detailsContent) {
     const profiles = document.getElementById('connection_profiles');
     renderConnectionProfiles(profiles);
 
+    /** @type {HTMLElement|null} */
+    // @ts-ignore
+    const detailsContent = document.getElementById('connection_profile_details_content');
+
     function toggleProfileSpecificButtons() {
         const profileId = extension_settings.connectionManager.selectedProfile;
         const profileSpecificButtons = ['update_connection_profile', 'reload_connection_profile', 'delete_connection_profile'];
-        profileSpecificButtons.forEach(id => document.getElementById(id).classList.toggle('disabled', !profileId));
+        profileSpecificButtons.forEach(id => {
+            const button = document.getElementById(id);
+            if (!button) return;
+            button.classList.toggle('disabled', !profileId);
+        });
     }
     toggleProfileSpecificButtons();
 
@@ -510,7 +540,9 @@ async function renderDetailsContent(detailsContent) {
         const profileId = selectedProfile.value;
         extension_settings.connectionManager.selectedProfile = profileId;
         saveSettingsDebounced();
-        await renderDetailsContent(detailsContent);
+        if (detailsContent) {
+            await renderDetailsContent(detailsContent);
+        }
 
         toggleProfileSpecificButtons();
 
@@ -532,7 +564,7 @@ async function renderDetailsContent(detailsContent) {
     });
 
     const reloadButton = document.getElementById('reload_connection_profile');
-    reloadButton.addEventListener('click', async () => {
+    reloadButton?.addEventListener('click', async () => {
         const selectedProfile = extension_settings.connectionManager.selectedProfile;
         const profile = extension_settings.connectionManager.profiles.find(p => p.id === selectedProfile);
         if (!profile) {
@@ -540,13 +572,15 @@ async function renderDetailsContent(detailsContent) {
             return;
         }
         await applyConnectionProfile(profile);
-        await renderDetailsContent(detailsContent);
+        if (detailsContent) {
+            await renderDetailsContent(detailsContent);
+        }
         await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
         toastr.success('Connection profile reloaded', '', { timeOut: 1500 });
     });
 
     const createButton = document.getElementById('create_connection_profile');
-    createButton.addEventListener('click', async () => {
+    createButton?.addEventListener('click', async () => {
         const profile = await createConnectionProfile();
         if (!profile) {
             return;
@@ -555,13 +589,15 @@ async function renderDetailsContent(detailsContent) {
         extension_settings.connectionManager.selectedProfile = profile.id;
         saveSettingsDebounced();
         renderConnectionProfiles(profiles);
-        await renderDetailsContent(detailsContent);
+        if (detailsContent) {
+            await renderDetailsContent(detailsContent);
+        }
         await eventSource.emit(event_types.CONNECTION_PROFILE_CREATED, profile);
         await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
     });
 
     const updateButton = document.getElementById('update_connection_profile');
-    updateButton.addEventListener('click', async () => {
+    updateButton?.addEventListener('click', async () => {
         const selectedProfile = extension_settings.connectionManager.selectedProfile;
         const profile = extension_settings.connectionManager.profiles.find(p => p.id === selectedProfile);
         if (!profile) {
@@ -570,7 +606,9 @@ async function renderDetailsContent(detailsContent) {
         }
         const oldProfile = structuredClone(profile);
         await updateConnectionProfile(profile);
-        await renderDetailsContent(detailsContent);
+        if (detailsContent) {
+            await renderDetailsContent(detailsContent);
+        }
         saveSettingsDebounced();
         await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, oldProfile, profile);
         await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, profile.name);
@@ -578,15 +616,17 @@ async function renderDetailsContent(detailsContent) {
     });
 
     const deleteButton = document.getElementById('delete_connection_profile');
-    deleteButton.addEventListener('click', async () => {
+    deleteButton?.addEventListener('click', async () => {
         await deleteConnectionProfile();
         renderConnectionProfiles(profiles);
-        await renderDetailsContent(detailsContent);
+        if (detailsContent) {
+            await renderDetailsContent(detailsContent);
+        }
         await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, NONE);
     });
 
     const editButton = document.getElementById('edit_connection_profile');
-    editButton.addEventListener('click', async () => {
+    editButton?.addEventListener('click', async () => {
         const selectedProfile = extension_settings.connectionManager.selectedProfile;
         const profile = extension_settings.connectionManager.profiles.find(p => p.id === selectedProfile);
         if (!profile) {
@@ -657,17 +697,20 @@ async function renderDetailsContent(detailsContent) {
         saveSettingsDebounced();
         await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, oldProfile, profile);
         renderConnectionProfiles(profiles);
-        await renderDetailsContent(detailsContent);
+        if (detailsContent) {
+            await renderDetailsContent(detailsContent);
+        }
     });
 
     /** @type {HTMLElement} */
     const viewDetails = document.getElementById('view_connection_profile');
-    const detailsContent = document.getElementById('connection_profile_details_content');
-    viewDetails.addEventListener('click', async () => {
-        viewDetails.classList.toggle('active');
-        detailsContent.classList.toggle('hidden');
-        await renderDetailsContent(detailsContent);
-    });
+    if (viewDetails && detailsContent) {
+        viewDetails.addEventListener('click', async () => {
+            viewDetails.classList.toggle('active');
+            detailsContent.classList.toggle('hidden');
+            await renderDetailsContent(detailsContent);
+        });
+    }
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'profile',
@@ -771,7 +814,9 @@ async function renderDetailsContent(detailsContent) {
             extension_settings.connectionManager.selectedProfile = profile.id;
             saveSettingsDebounced();
             renderConnectionProfiles(profiles);
-            await renderDetailsContent(detailsContent);
+            if (detailsContent) {
+                await renderDetailsContent(detailsContent);
+            }
             await eventSource.emit(event_types.CONNECTION_PROFILE_CREATED, profile);
             return profile.name;
         },
@@ -789,7 +834,9 @@ async function renderDetailsContent(detailsContent) {
             }
             const oldProfile = structuredClone(profile);
             await updateConnectionProfile(profile);
-            await renderDetailsContent(detailsContent);
+            if (detailsContent) {
+                await renderDetailsContent(detailsContent);
+            }
             saveSettingsDebounced();
             await eventSource.emit(event_types.CONNECTION_PROFILE_UPDATED, oldProfile, profile);
             return profile.name;
