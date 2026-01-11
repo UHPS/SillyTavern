@@ -2213,14 +2213,10 @@
                 <div class="flex-container flexFlowColumn">
                     <div id="main-API-selector-block">
                         <select id="main_api">
-                            <option value="textgenerationwebui" data-i18n="Text Completion">Text Completion</option>
                             <option value="openai" data-i18n="Chat Completion">Chat Completion</option>
-                            <option value="novel" data-i18n="NovelAI">NovelAI</option>
-                            <option value="koboldhorde" data-i18n="AI Horde">AI Horde</option>
-                            <option value="kobold" data-i18n="KoboldAI">KoboldAI Classic</option>
                         </select>
                     </div>
-                    <div id="kobold_horde" style="position: relative;"> <!-- shows the kobold settings -->
+                    <div id="kobold_horde" style="display: none; position: relative;"> <!-- shows the kobold settings -->
                         <form action="javascript:void(null);" method="post" enctype="multipart/form-data">
                             <div id="kobold_horde_block">
                                 <ul>
@@ -2288,7 +2284,7 @@
                             </div>
                         </form>
                     </div>
-                    <div id="kobold_api" style="position: relative;"> <!-- shows the kobold settings -->
+                    <div id="kobold_api" style="display: none; position: relative;"> <!-- shows the kobold settings -->
                         <form action="javascript:void(null);" method="post" enctype="multipart/form-data">
                             <div id="kobold_api_block">
                                 <h4 data-i18n="API url">API url</h4>
@@ -2812,39 +2808,8 @@
                         </div>
                     </div>
                     <div id="openai_api" style="display: none;position: relative;">
-                        <h4 class="margin0" data-i18n="Chat Completion Source">
-                            Chat Completion Source
-                        </h4>
                         <select id="chat_completion_source">
-                            <optgroup>
-                                <option value="openai">OpenAI</option>
-                                <option value="custom" data-i18n="Custom (OpenAI-compatible)">Custom (OpenAI-compatible)</option>
-                            </optgroup>
-                            <optgroup>
-                                <option value="ai21">AI21</option>
-                                <option value="aimlapi">AI/ML API</option>
-                                <option value="azure_openai">Azure OpenAI</option>
-                                <option value="chutes">Chutes</option>
-                                <option value="claude">Claude</option>
-                                <option value="cohere">Cohere</option>
-                                <!-- Temporarily disabled. -->
-                                <!-- <option value="cometapi">CometAPI</option> -->
-                                <option value="deepseek">DeepSeek</option>
-                                <option value="electronhub">Electron Hub</option>
-                                <option value="fireworks">Fireworks AI</option>
-                                <option value="groq">Groq</option>
-                                <option value="makersuite">Google AI Studio</option>
-                                <option value="vertexai">Google Vertex AI</option>
-                                <option value="mistralai">MistralAI</option>
-                                <option value="moonshot">Moonshot AI</option>
-                                <option value="nanogpt">NanoGPT</option>
-                                <option value="openrouter">OpenRouter</option>
-                                <option value="perplexity">Perplexity</option>
-                                <option value="pollinations">Pollinations</option>
-                                <option value="siliconflow">SiliconFlow</option>
-                                <option value="xai">xAI (Grok)</option>
-                                <option value="zai">Z.AI (GLM)</option>
-                            </optgroup>
+                            <option value="custom" data-i18n="Custom (OpenAI-compatible)">Custom (OpenAI-compatible)</option>
                         </select>
                         <div class="inline-drawer wide100p" data-source="openai,claude,mistralai,makersuite,vertexai,deepseek,xai">
                             <div class="inline-drawer-toggle inline-drawer-header">

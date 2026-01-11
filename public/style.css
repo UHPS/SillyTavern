@@ -5682,6 +5682,31 @@ body:not(.movingUI) .drawer-content.maximized {
     display: none;
 }
 
+/* rout.my integration: keep API panel minimal */
+#rm_api_block #main-API-selector-block {
+    display: none;
+}
+
+#openai_api #chat_completion_source {
+    display: none;
+}
+
+#openai_api [data-source]:not([data-source*="custom"]) {
+    display: none !important;
+}
+
+#openai_api #prompt_post_processing_form {
+    display: none !important;
+}
+
+#openai_api > :not(#custom_form):not(.flex-container.flex):not(.online_status):not(#chat_completion_source) {
+    display: none !important;
+}
+
+#rm_api_block .flex-container.alignitemscenter.spaceBetween.wide100p {
+    display: none;
+}
+
 .reverse_proxy_warning:not(small) {
     color: var(--warning);
     background-color: var(--black70a);

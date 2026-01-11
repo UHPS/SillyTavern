@@ -7693,10 +7693,15 @@ export async function getSettings() {
 
         //Load which API we are using
         if (settings.main_api == undefined) {
-            settings.main_api = 'kobold';
+            settings.main_api = 'openai';
         }
 
         if (settings.main_api == 'poe') {
+            settings.main_api = 'openai';
+        }
+
+        // rout.my integration: restrict to Chat Completion only
+        if (settings.main_api !== 'openai') {
             settings.main_api = 'openai';
         }
 

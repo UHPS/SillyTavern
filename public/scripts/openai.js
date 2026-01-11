@@ -437,7 +437,7 @@ const default_settings = {
     openrouter_allow_fallbacks: true,
     openrouter_middleout: openrouter_middleout_types.ON,
     reverse_proxy: '',
-    chat_completion_source: chat_completion_sources.OPENAI,
+    chat_completion_source: chat_completion_sources.CUSTOM,
     max_context_unlocked: false,
     show_external_models: false,
     proxy_password: '',
