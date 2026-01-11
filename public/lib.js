@@ -23,6 +23,9 @@ import { toggle as slideToggle } from 'slidetoggle';
 import chalk from 'chalk';
 import yaml from 'yaml';
 import * as chevrotain from 'chevrotain';
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { VibeKanbanWebCompanion } from 'vibe-kanban-web-companion';
 
 /**
  * Expose the libraries to the 'window' object.
@@ -77,6 +80,18 @@ export function initLibraryShims() {
         // @ts-ignore
         window.droll = droll;
     }
+    if (!('React' in window)) {
+        // @ts-ignore
+        window.React = React;
+    }
+    if (!('ReactDOM' in window)) {
+        // @ts-ignore
+        window.ReactDOM = ReactDOM;
+    }
+    if (!('VibeKanbanWebCompanion' in window)) {
+        // @ts-ignore
+        window.VibeKanbanWebCompanion = VibeKanbanWebCompanion;
+    }
 }
 
 export default {
@@ -102,6 +117,9 @@ export default {
     chalk,
     yaml,
     chevrotain,
+    React,
+    ReactDOM,
+    VibeKanbanWebCompanion,
 };
 
 export {
@@ -127,4 +145,7 @@ export {
     chalk,
     yaml,
     chevrotain,
+    React,
+    ReactDOM,
+    VibeKanbanWebCompanion,
 };
