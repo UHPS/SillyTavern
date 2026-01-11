@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --st-surface: color-mix(in srgb, var(--SmartThemeBlurTintColor) 82%, #0b0b0c 18%);
+    --st-surface-strong: color-mix(in srgb, var(--SmartThemeBlurTintColor) 68%, #0b0b0c 32%);
+    --st-surface-glass: color-mix(in srgb, var(--SmartThemeBlurTintColor) 70%, transparent 30%);
+    --st-border: color-mix(in srgb, var(--SmartThemeBorderColor) 70%, #000 30%);
+    --st-border-strong: color-mix(in srgb, var(--SmartThemeBorderColor) 60%, #fff 20%);
+    --st-text-muted: color-mix(in srgb, var(--SmartThemeEmColor) 75%, #fff 25%);
+    --st-accent: color-mix(in srgb, var(--SmartThemeUnderlineColor) 60%, #7dd3fc 40%);
+    --st-accent-strong: color-mix(in srgb, var(--st-accent) 70%, #0ea5e9 30%);
+    --st-focus: color-mix(in srgb, var(--st-accent) 80%, #fff 20%);
+    --st-radius-sm: 0.5rem;
+    --st-radius-md: 0.75rem;
+    --st-radius-lg: 1rem;
+    --st-shadow: 0 20px 50px -40px rgba(0, 0, 0, 0.7);
+  }
+
+  #sillytavern-root {
+    font-family: var(--mainFontFamily);
+    color: var(--SmartThemeBodyColor);
+    letter-spacing: 0.01em;
+  }
+
+  #sillytavern-root :where(h1, h2, h3, h4, h5, h6) {
+    @apply font-semibold tracking-tight;
+    color: var(--SmartThemeBodyColor);
+  }
+
+  #sillytavern-root :where(p) {
+    @apply leading-relaxed;
+  }
+
+  #sillytavern-root :where(code, pre, kbd, samp) {
+    font-family: var(--monoFontFamily);
+  }
+
+  #sillytavern-root :where(a) {
+    color: var(--st-accent);
+    text-decoration: none;
+  }
+
+  #sillytavern-root :where(a:hover) {
+    color: var(--st-accent-strong);
+    text-decoration: underline;
+  }
+
+  #sillytavern-root :where(input, select, textarea) {
+    @apply leading-snug;
+    background: var(--st-surface);
+    color: var(--SmartThemeBodyColor);
+    border: 1px solid var(--st-border);
+    border-radius: var(--st-radius-sm);
+  }
+
+  #sillytavern-root :where(input, select, textarea)::placeholder {
+    color: var(--st-text-muted);
+  }
+
+  #sillytavern-root :where(:focus-visible) {
+    outline: 2px solid var(--st-focus);
+    outline-offset: 2px;
+  }
+
+  #sillytavern-root :where(::selection) {
+    background: color-mix(in srgb, var(--st-accent) 35%, transparent 65%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #sillytavern-root :where(*, *::before, *::after) {
+      transition-duration: 0ms !important;
+      animation-duration: 0ms !important;
+    }
+  }
+}
+
+@layer components {
+  #sillytavern-root .menu_button {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-1.5 text-[0.9rem] font-medium;
+    background: var(--st-surface);
+    border-color: var(--st-border);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+    transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  #sillytavern-root .menu_button:hover,
+  #sillytavern-root .menu_button.active {
+    background: var(--st-surface-strong);
+    border-color: var(--st-border-strong);
+    box-shadow: 0 10px 24px -20px rgba(0, 0, 0, 0.7);
+  }
+
+  #sillytavern-root .menu_button:active {
+    transform: translateY(1px);
+  }
+
+  #sillytavern-root .menu_button.disabled,
+  #sillytavern-root .menu_button[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  #sillytavern-root .menu_button_icon {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border px-2.5 py-1 text-[0.85rem];
+    background: var(--st-surface);
+    border-color: var(--st-border);
+    transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+  }
+
+  #sillytavern-root .menu_button_icon:hover {
+    background: var(--st-surface-strong);
+    border-color: var(--st-border-strong);
+  }
+
+  #sillytavern-root .text_pole {
+    @apply w-full rounded-lg border px-3 py-2;
+    background: var(--st-surface);
+    border-color: var(--st-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  #sillytavern-root select.text_pole {
+    @apply pr-8;
+  }
+
+  #sillytavern-root .drawer-content {
+    border-radius: var(--st-radius-lg);
+    background: var(--st-surface-glass);
+    border-color: var(--st-border);
+    box-shadow: var(--st-shadow);
+    backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 1.2));
+    -webkit-backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 1.2));
+  }
+
+  #sillytavern-root .drawer-icon {
+    @apply inline-flex items-center justify-center rounded-lg border px-2 py-1 text-[1.1rem];
+    background: var(--st-surface);
+    border-color: var(--st-border);
+    transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+  }
+
+  #sillytavern-root .drawer-icon:hover {
+    background: var(--st-surface-strong);
+    border-color: var(--st-border-strong);
+    transform: translateY(-1px);
+  }
+
+  #sillytavern-root .standoutHeader {
+    border-radius: var(--st-radius-md);
+    border: 1px solid var(--st-border);
+    background-image: linear-gradient(135deg, color-mix(in srgb, var(--st-surface) 75%, transparent 25%), color-mix(in srgb, var(--st-accent) 16%, transparent 84%));
+    box-shadow: 0 10px 24px -22px rgba(0, 0, 0, 0.7);
+  }
+
+  #sillytavern-root .popup {
+    border-radius: var(--st-radius-lg);
+    border: 1px solid var(--st-border);
+    background: var(--st-surface-glass);
+    box-shadow: var(--st-shadow);
+  }
+
+  #sillytavern-root .popup-controls {
+    @apply gap-3;
+  }
+
+  #sillytavern-root .popup .popup-button-close {
+    @apply rounded-full border border-transparent;
+    background: var(--st-surface-strong);
+  }
+}
