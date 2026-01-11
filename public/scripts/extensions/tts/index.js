@@ -175,7 +175,7 @@ async function onNarrateText(args, text) {
     await initVoiceMap(true);
 
     const baseName = args?.voice || name2;
-    const name = (baseName === 'SillyTavern System' ? DEFAULT_VOICE_MARKER : baseName) || DEFAULT_VOICE_MARKER;
+    const name = (baseName === 'RoutTavern System' ? DEFAULT_VOICE_MARKER : baseName) || DEFAULT_VOICE_MARKER;
 
     const voiceMapEntry = voiceMap[name] === DEFAULT_VOICE_MARKER
         ? voiceMap[DEFAULT_VOICE_MARKER]
@@ -1224,7 +1224,7 @@ function getCharacters(unrestricted) {
     if (extension_settings.tts.multi_voice_enabled) {
         const expandedCharacters = [];
         for (const char of characters) {
-            if (char === DEFAULT_VOICE_MARKER || char === 'SillyTavern System') {
+            if (char === DEFAULT_VOICE_MARKER || char === 'RoutTavern System') {
                 expandedCharacters.push(char);
             } else {
                 expandedCharacters.push(`${char} ("Quotes")`);
@@ -1413,7 +1413,7 @@ async function initVoiceMapInternal(unrestricted) {
 
     // Build UI using VoiceMapEntry objects
     for (const character of characters) {
-        if (character === 'SillyTavern System') {
+        if (character === 'RoutTavern System') {
             continue;
         }
         // Check provider settings for voiceIds

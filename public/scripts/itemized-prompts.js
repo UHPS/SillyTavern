@@ -12,7 +12,7 @@ import { copyText } from './utils.js';
 let PromptArrayItemForRawPromptDisplay;
 let priorPromptArrayItemForRawPromptDisplay;
 
-const promptStorage = localforage.createInstance({ name: 'SillyTavern_Prompts' });
+const promptStorage = localforage.createInstance({ name: 'RoutTavern_Prompts' });
 export let itemizedPrompts = [];
 
 /**

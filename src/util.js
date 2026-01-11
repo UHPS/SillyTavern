@@ -131,10 +131,11 @@ export function getBasicAuthHeader(auth) {
 /**
  * Returns the version of the running instance. Get the version from the package.json file and the git revision.
  * Also returns the agent string for the Horde API.
- * @returns {Promise<{agent: string, pkgVersion: string, gitRevision: string | null, gitBranch: string | null, commitDate: string | null, isLatest: boolean}>} Version info object
+ * @returns {Promise<{agent: string, pkgVersion: string, pkgVersionDisplay: string, gitRevision: string | null, gitBranch: string | null, commitDate: string | null, isLatest: boolean}>} Version info object
  */
 export async function getVersion() {
     let pkgVersion = 'UNKNOWN';
+    let pkgVersionDisplay = pkgVersion;
     let gitRevision = null;
     let gitBranch = null;
     let commitDate = null;
@@ -144,6 +145,7 @@ export async function getVersion() {
         const require = createRequire(import.meta.url);
         const pkgJson = require(path.join(serverDirectory, './package.json'));
         pkgVersion = pkgJson.version;
+        pkgVersionDisplay = pkgJson.displayVersion ?? pkgVersion;
         if (commandExistsSync('git')) {
             const git = simpleGit({ baseDir: serverDirectory });
             gitRevision = await git.revparse(['--short', 'HEAD']);
@@ -162,8 +164,8 @@ export async function getVersion() {
         // suppress exception
     }
 
-    const agent = `SillyTavern:${pkgVersion}:Cohee#1207`;
-    return { agent, pkgVersion, gitRevision, gitBranch, commitDate: commitDate?.trim() ?? null, isLatest };
+    const agent = `RoutTavern:${pkgVersionDisplay}:Cohee#1207`;
+    return { agent, pkgVersion, pkgVersionDisplay, gitRevision, gitBranch, commitDate: commitDate?.trim() ?? null, isLatest };
 }
 
 /**

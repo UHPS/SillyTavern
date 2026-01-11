@@ -2,11 +2,11 @@
 echo ========================================================================================================================
 echo WARNING: Cloudflare Tunnel!
 echo ========================================================================================================================
-echo This script downloads and runs the latest cloudflared.exe from Cloudflare to set up an HTTPS tunnel to your SillyTavern!
-echo Using the randomly generated temporary tunnel URL, anyone can access your SillyTavern over the Internet while the tunnel
-echo is active. Keep the URL safe and secure your SillyTavern installation by setting a username and password in config.yaml!
+echo This script downloads and runs the latest cloudflared.exe from Cloudflare to set up an HTTPS tunnel to your RoutTavern!
+echo Using the randomly generated temporary tunnel URL, anyone can access your RoutTavern over the Internet while the tunnel
+echo is active. Keep the URL safe and secure your RoutTavern installation by setting a username and password in config.yaml!
 echo.
-echo See https://docs.sillytavern.app/usage/remoteconnections/ for more details about how to secure your SillyTavern install.
+echo See https://docs.sillytavern.app/usage/remoteconnections/ for more details about how to secure your RoutTavern install.
 echo.
 echo By continuing you confirm that you're aware of the potential dangers of having a tunnel open and take all responsibility
 echo to properly use and secure it!

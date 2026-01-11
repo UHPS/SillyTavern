@@ -1,6 +1,6 @@
 export const testSetup = {
     /**
-     * Navigates to the home page without waiting for SillyTavern to load.
+     * Navigates to the home page without waiting for RoutTavern to load.
      * @param {Object} params
      * @param {import('@playwright/test').Page} params.page
      */
@@ -9,7 +9,7 @@ export const testSetup = {
     },
 
     /**
-     * Waits for SillyTavern to fully load by navigating to the home page and waiting for the preloader to disappear.
+     * Waits for RoutTavern to fully load by navigating to the home page and waiting for the preloader to disappear.
      * @param {Object} params
      * @param {import('@playwright/test').Page} params.page
      */

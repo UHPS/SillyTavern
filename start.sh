@@ -12,5 +12,5 @@ echo "Installing Node Modules..."
 export NODE_ENV=production
 npm i --no-save --no-audit --no-fund --loglevel=error --no-progress --omit=dev
 
-echo "Entering SillyTavern..."
+echo "Entering RoutTavern..."
 node "server.js" "$@"

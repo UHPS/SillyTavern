@@ -19,7 +19,7 @@ const SELECT_SAMPLER = {
     HIDDEN: 'hidden',
 };
 
-const textGenObjectStore = localforage.createInstance({ name: 'SillyTavern_TextCompletions' });
+const textGenObjectStore = localforage.createInstance({ name: 'RoutTavern_TextCompletions' });
 let selectedSamplers = {};
 
 // Goal 1: show popup with all samplers for active API

@@ -284,10 +284,13 @@ import { MacroEngine } from './scripts/macros/engine/MacroEngine.js';
 import { addChatBackupsBrowser } from './scripts/chat-backups.js';
 
 // API OBJECT FOR EXTERNAL WIRING
-globalThis.SillyTavern = {
+globalThis.RoutTavern = {
     libs,
     getContext,
 };
+if (!globalThis.SillyTavern) {
+    globalThis.SillyTavern = globalThis.RoutTavern;
+}
 
 export {
     user_avatar,
@@ -370,7 +373,7 @@ export let converter;
 
 // array for prompt token calculations
 
-export const systemUserName = 'SillyTavern System';
+export const systemUserName = 'RoutTavern System';
 export const neutralCharacterName = 'Assistant';
 let default_user_name = 'User';
 export let name1 = default_user_name;
@@ -388,7 +391,7 @@ export let isChatSaving = false;
 let firstRun = false;
 let settingsReady = false;
 let currentVersion = '0.0.0';
-export let displayVersion = 'SillyTavern';
+export let displayVersion = 'RoutTavern';
 
 let generation_started = new Date();
 /** @type {Character[]} */
@@ -403,7 +406,7 @@ export const default_avatar = 'img/ai4.png';
 export const system_avatar = 'img/five.png';
 export const comment_avatar = 'img/quill.png';
 export const default_user_avatar = 'img/user-default.png';
-export let CLIENT_VERSION = 'SillyTavern:UNKNOWN:Cohee#1207'; // For Horde header
+export let CLIENT_VERSION = 'RoutTavern:UNKNOWN:Cohee#1207'; // For Horde header
 let optionsPopper = Popper.createPopper(document.getElementById('options_button'), document.getElementById('options'), {
     placement: 'top-start',
 });
@@ -472,7 +475,7 @@ async function getClientVersion() {
         const response = await fetch('/version');
         const data = await response.json();
         CLIENT_VERSION = data.agent;
-        displayVersion = `SillyTavern ${data.pkgVersion}`;
+        displayVersion = `RoutTavern ${data.pkgVersionDisplay ?? data.pkgVersion}`;
         currentVersion = data.pkgVersion;
 
         if (data.gitRevision && data.gitBranch) {
@@ -11768,7 +11771,7 @@ jQuery(async function () {
             }
 
             if (selected_group && format === 'json') {
-                toastr.warning(t`Only SillyTavern's own format is supported for group chat imports. Sorry!`);
+                toastr.warning(t`Only RoutTavern's own format is supported for group chat imports. Sorry!`);
                 continue;
             }
 

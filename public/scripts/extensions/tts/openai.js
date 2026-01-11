@@ -152,7 +152,7 @@ class OpenAITtsProvider {
         $('#openai-character-instructions').empty();
 
         for (const char of currentCharacters) {
-            if (char === 'SillyTavern System' || char === '[Default Voice]') continue;
+            if (char === 'RoutTavern System' || char === '[Default Voice]') continue;
 
             const sanitizedName = sanitizeId(char);
             const savedInstructions = this.settings.characterInstructions?.[char] || '';

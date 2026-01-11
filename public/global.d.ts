@@ -174,6 +174,7 @@ declare global {
         llm: any;
         libs: typeof libs;
     };
+    var RoutTavern: typeof SillyTavern;
 
     // Jquery plugins
     interface JQuery {

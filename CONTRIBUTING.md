@@ -1,4 +1,4 @@
-# How to contribute to SillyTavern
+# How to contribute to RoutTavern
 
 ## Setting up the dev environment
 

@@ -109,14 +109,15 @@
             "whatwg-url": "^14.0.0"
         }
     },
-    "name": "sillytavern",
+    "name": "routtavern",
     "type": "module",
     "license": "AGPL-3.0",
     "repository": {
         "type": "git",
-        "url": "https://github.com/SillyTavern/SillyTavern.git"
+        "url": "https://github.com/RoutTavern/RoutTavern.git"
     },
-    "version": "1.15.0",
+    "version": "0.1.0-beta",
+    "displayVersion": "0.1 BETA",
     "scripts": {
         "start": "node server.js",
         "debug": "node --inspect server.js",
@@ -149,7 +150,7 @@
         "exec": "node server.js"
     },
     "bin": {
-        "sillytavern": "./src/server-global.js"
+        "routtavern": "./src/server-global.js"
     },
     "rules": {
         "no-path-concat": "off",

@@ -264,7 +264,7 @@ export class ByafParser {
                 tags: character?.isNSFW ? ['nsfw'] : [], // Since there are no tags in BYAF spec, we can use this to preserve the isNSFW flag.
                 creator: manifest?.author?.name || '',
                 character_version: '',
-                extensions: { ...(character?.displayName && { 'display_name': character?.displayName }) }, // Preserve display name unmodified using extensions. "display_name" is not used by SillyTavern currently.
+                extensions: { ...(character?.displayName && { 'display_name': character?.displayName }) }, // Preserve display name unmodified using extensions. "display_name" is not used by RoutTavern currently.
             },
             // @ts-ignore Non-standard spec extension
             create_date: new Date().toISOString(),

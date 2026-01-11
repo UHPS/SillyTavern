@@ -91,6 +91,7 @@ export default [
                 pdfjsLib: 'readonly',
                 toastr: 'readonly',
                 SillyTavern: 'readonly',
+                RoutTavern: 'readonly',
             },
         },
     },

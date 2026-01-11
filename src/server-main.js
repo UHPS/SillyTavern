@@ -253,7 +253,7 @@ async function preSetupTasks() {
 
     // Print formatted header
     console.log();
-    console.log(`SillyTavern ${version.pkgVersion}`);
+    console.log(`RoutTavern ${version.pkgVersionDisplay}`);
     if (version.gitBranch && version.commitDate) {
         const date = new Date(version.commitDate);
         const localDate = date.toLocaleString('en-US', { timeZoneName: 'short' });
@@ -349,9 +349,9 @@ async function postSetupTasks(result) {
         }
     }
 
-    setWindowTitle('SillyTavern WebServer');
+    setWindowTitle('RoutTavern WebServer');
 
-    let logListen = 'SillyTavern is listening on';
+    let logListen = 'RoutTavern is listening on';
 
     if (result.useIPv6 && !result.v6Failed) {
         logListen += color.green(
@@ -365,7 +365,7 @@ async function postSetupTasks(result) {
         );
     }
 
-    const goToLog = `Go to: ${color.blue(browserLaunchUrl)} to open SillyTavern`;
+    const goToLog = `Go to: ${color.blue(browserLaunchUrl)} to open RoutTavern`;
     const plainGoToLog = removeColorFormatting(goToLog);
 
     console.log(logListen);

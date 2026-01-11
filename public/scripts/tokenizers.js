@@ -152,7 +152,7 @@ const TOKENIZER_URLS = {
     },
 };
 
-const objectStore = localforage.createInstance({ name: 'SillyTavern_ChatCompletions' });
+const objectStore = localforage.createInstance({ name: 'RoutTavern_ChatCompletions' });
 
 let tokenCache = {};
 
@@ -1226,4 +1226,3 @@ export async function initTokenizers() {
     await loadTokenCache();
     registerDebugFunction('resetTokenCache', 'Reset token cache', 'Purges the calculated token counts. Use this if you want to force a full re-tokenization of all chats or suspect the token counts are wrong.', resetTokenCache);
 }
-

@@ -1,6 +1,6 @@
 {
-    "name": "SillyTavern",
-    "short_name": "SillyTavern",
+    "name": "RoutTavern",
+    "short_name": "RoutTavern",
     "start_url": "/",
     "display": "standalone",
     "theme_color": "#202124",
